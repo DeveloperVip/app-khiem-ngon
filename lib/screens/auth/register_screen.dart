@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../providers/auth_provider.dart';
+import '../../screens/main_home_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -38,14 +40,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
 
     if (success && mounted) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Đăng ký thành công! Vui lòng kiểm tra email để xác nhận tài khoản.'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 4),
-        ),
-      );
+      // Đăng ký thành công - Navigate trực tiếp đến MainHomeScreen
+      await Future.delayed(const Duration(milliseconds: 200));
+      
+      final supabase = Supabase.instance.client;
+      final hasSession = supabase.auth.currentSession != null;
+      final hasUser = authProvider.user != null;
+      
+      if (hasSession || hasUser) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const MainHomeScreen()),
+        );
+      } else {
+        // Thử refresh lại
+        await authProvider.refreshUser();
+        await Future.delayed(const Duration(milliseconds: 300));
+        
+        if (authProvider.isAuthenticated || supabase.auth.currentSession != null) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const MainHomeScreen()),
+          );
+        }
+      }
     } else if (mounted) {
       // Hiển thị lỗi với message rõ ràng hơn
       final errorMsg = authProvider.errorMessage ?? 'Đăng ký thất bại';

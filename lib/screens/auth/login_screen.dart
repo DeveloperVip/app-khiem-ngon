@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../providers/auth_provider.dart';
+import '../../screens/main_home_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -27,18 +29,96 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    
+    print('Login: Starting sign in...');
     final success = await authProvider.signIn(
       email: _emailController.text.trim(),
       password: _passwordController.text,
     );
 
+    print('Login: Sign in result = $success');
+    print('Login: User = ${authProvider.user?.email}');
+    print('Login: isAuthenticated = ${authProvider.isAuthenticated}');
+    print('Login: AuthProvider user = ${authProvider.user != null}');
+
     if (!success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(authProvider.errorMessage ?? 'Đăng nhập thất bại'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      final errorMsg = authProvider.errorMessage?.replaceAll('Exception: ', '') ?? 'Đăng nhập thất bại';
+      print('Login: Error = $errorMsg');
+      
+      // Hiển thị dialog nếu là lỗi email chưa xác nhận
+      if (errorMsg.contains('Email chưa được xác nhận')) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Email chưa được xác nhận'),
+            content: const Text(
+              'Email của bạn chưa được xác nhận. Vui lòng:\n\n'
+              '1. Kiểm tra email (kể cả thư mục spam)\n'
+              '2. Click vào link xác nhận trong email\n'
+              '3. Đăng nhập lại\n\n'
+              'Hoặc tắt "Enable email confirmations" trong Supabase Dashboard > Authentication > Providers > Email để test.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Đóng'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMsg),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Đóng',
+              textColor: Colors.white,
+              onPressed: () {
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              },
+            ),
+          ),
+        );
+      }
+    } else if (success && mounted) {
+      // Đăng nhập thành công - Navigate trực tiếp đến MainHomeScreen
+      print('Login: Success! Navigating to MainHomeScreen...');
+      
+      // Đợi một chút để đảm bảo state được update
+      await Future.delayed(const Duration(milliseconds: 200));
+      
+      // Kiểm tra lại
+      final supabase = Supabase.instance.client;
+      final hasSession = supabase.auth.currentSession != null;
+      final hasUser = authProvider.user != null;
+      
+      print('Login: Final check - hasSession: $hasSession, hasUser: $hasUser');
+      
+      if (hasSession || hasUser) {
+        // Navigate và replace LoginScreen bằng MainHomeScreen
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const MainHomeScreen()),
+        );
+      } else {
+        // Nếu vẫn không có session/user, thử refresh lại
+        await authProvider.refreshUser();
+        await Future.delayed(const Duration(milliseconds: 300));
+        
+        if (authProvider.isAuthenticated || supabase.auth.currentSession != null) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const MainHomeScreen()),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Đăng nhập thành công nhưng có lỗi khi load thông tin. Vui lòng thử lại.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
     }
   }
 

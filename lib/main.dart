@@ -87,14 +87,27 @@ class _AuthWrapperState extends State<AuthWrapper> {
           );
         }
         
-        // Kiểm tra cả authProvider.isAuthenticated và Supabase session
+        // Kiểm tra authentication state
         final supabase = Supabase.instance.client;
         final hasSession = supabase.auth.currentSession != null;
-        final isAuthenticated = authProvider.isAuthenticated || hasSession;
+        final hasUser = authProvider.user != null;
+        final isAuthenticated = hasUser || hasSession;
         
-        return isAuthenticated
-            ? const MainHomeScreen()
-            : const LoginScreen();
+        // Debug log để troubleshoot
+        print('AuthWrapper build:');
+        print('  - hasUser: $hasUser');
+        print('  - hasSession: $hasSession');
+        print('  - isAuthenticated: $isAuthenticated');
+        print('  - authProvider.user: ${authProvider.user?.email}');
+        print('  - supabase.currentUser: ${supabase.auth.currentUser?.email}');
+        
+        if (isAuthenticated) {
+          print('AuthWrapper: ✅ User authenticated, navigating to MainHomeScreen');
+          return const MainHomeScreen();
+        } else {
+          print('AuthWrapper: ❌ User not authenticated, showing LoginScreen');
+          return const LoginScreen();
+        }
       },
     );
   }

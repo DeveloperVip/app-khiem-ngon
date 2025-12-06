@@ -120,13 +120,38 @@ class AuthProvider extends ChangeNotifier {
         email: email,
         password: password,
       );
+      
+      // Đảm bảo user được set, nếu null thì tạo từ auth data
+      if (_user == null) {
+        final authUser = _authService.currentUser;
+        if (authUser != null) {
+          _user = UserModel(
+            uid: authUser.id,
+            email: authUser.email ?? email,
+            displayName: authUser.userMetadata?['display_name'] ?? 
+                        email.split('@')[0],
+            createdAt: DateTime.now(),
+          );
+        }
+      }
+      
       _isLoading = false;
+      // Quan trọng: notifyListeners() để AuthWrapper rebuild
       notifyListeners();
+      
+      print('SignIn: User set = ${_user != null}, isAuthenticated = ${_user != null}');
+      print('SignIn: Auth user = ${_authService.currentUser?.id}');
+      
+      // Đợi một chút để đảm bảo state được update
+      await Future.delayed(const Duration(milliseconds: 100));
+      notifyListeners();
+      
       return _user != null;
     } catch (e) {
       _errorMessage = e.toString();
       _isLoading = false;
       notifyListeners();
+      print('SignIn error: $e');
       return false;
     }
   }

@@ -109,8 +109,9 @@ class AuthService {
         throw Exception('Email hoặc mật khẩu không đúng. Vui lòng kiểm tra lại.');
       }
       
-      if (errorMessage.contains('Email not confirmed')) {
-        throw Exception('Email chưa được xác nhận. Vui lòng kiểm tra email và click vào link xác nhận.');
+      if (errorMessage.contains('Email not confirmed') || 
+          errorMessage.contains('email_not_confirmed')) {
+        throw Exception('Email chưa được xác nhận. Vui lòng kiểm tra email và click vào link xác nhận.\n\nNếu bạn đang test, hãy tắt "Enable email confirmations" trong Supabase Dashboard > Authentication > Settings.');
       }
       
       throw Exception('Lỗi đăng nhập: ${e.toString()}');
