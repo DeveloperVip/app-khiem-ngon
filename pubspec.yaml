@@ -1,0 +1,31 @@
+name: flutter_application_initial
+description: "A new Flutter project."
+publish_to: "none"
+version: 0.1.0
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.1.5
+  image_picker: ^1.0.7
+  camera: ^0.10.5+9
+  video_player: ^2.8.2
+  permission_handler: ^11.1.0
+  path_provider: ^2.1.2
+  file_picker: ^8.1.2
+  path: ^1.8.3
+  intl: ^0.19.0
+  supabase_flutter: ^2.5.6
+  cached_network_image: ^3.3.1
+  flutter_rating_bar: ^4.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
