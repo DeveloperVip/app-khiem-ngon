@@ -240,3 +240,4 @@ Bạn sẽ thấy form với các trường sau:
 - **Production**: Dùng SendGrid, Resend, hoặc Mailgun
 - **Enterprise**: Dùng Amazon SES hoặc SMTP riêng
 
+

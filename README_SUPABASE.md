@@ -78,3 +78,4 @@ Nếu gặp vấn đề, kiểm tra:
 
 Xem `SUPABASE_SETUP.md` để biết chi tiết cách setup!
 
+

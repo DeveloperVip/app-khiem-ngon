@@ -97,3 +97,4 @@ Nếu SMTP vẫn không hoạt động, bạn có thể:
    - Port và Host đúng chưa
 3. Xem logs trong Supabase Dashboard > Logs > Auth để biết chi tiết lỗi
 
+
