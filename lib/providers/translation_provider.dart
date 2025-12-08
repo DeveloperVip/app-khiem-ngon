@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:camera/camera.dart';
 import '../models/translation_result.dart';
 import '../services/translation_service.dart';
 
@@ -68,6 +69,30 @@ class TranslationProvider extends ChangeNotifier {
       _errorMessage = 'Lỗi khi dịch từ camera: ${e.toString()}';
       _isProcessing = false;
       notifyListeners();
+    }
+  }
+
+  /// Xử lý frame từ camera stream trực tiếp (hiệu quả hơn)
+  Future<void> translateCameraImage(CameraImage cameraImage) async {
+    // Không set _isProcessing = true để tránh flicker UI
+    // Chỉ update khi có kết quả
+    _errorMessage = null;
+
+    try {
+      final result = await _translationService.translateCameraImage(cameraImage);
+      _currentResult = result;
+      // Chỉ thêm vào history nếu kết quả khác với kết quả trước đó
+      if (_history.isEmpty || _history.first.text != result.text) {
+        _history.insert(0, result);
+        // Giới hạn history để tránh memory leak
+        if (_history.length > 50) {
+          _history.removeRange(50, _history.length);
+        }
+      }
+      notifyListeners();
+    } catch (e) {
+      // Không hiển thị lỗi cho mỗi frame để tránh spam
+      debugPrint('Error translating camera frame: $e');
     }
   }
 

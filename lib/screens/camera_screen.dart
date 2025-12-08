@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:provider/provider.dart';
 import '../providers/translation_provider.dart';
+import '../services/frame_processor.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -16,6 +18,9 @@ class _CameraScreenState extends State<CameraScreen> {
   bool _isInitialized = false;
   bool _isProcessing = false;
   String? _currentTranslation;
+  double? _currentConfidence;
+  bool _isStreamActive = false;
+  final FrameProcessor _frameProcessor = FrameProcessor();
 
   @override
   void initState() {
@@ -29,17 +34,21 @@ class _CameraScreenState extends State<CameraScreen> {
       if (_cameras != null && _cameras!.isNotEmpty) {
         _controller = CameraController(
           _cameras![0],
-          ResolutionPreset.high,
+          ResolutionPreset.medium, // Dùng medium thay vì high để tăng tốc độ
           enableAudio: false,
+          imageFormatGroup: ImageFormatGroup.yuv420, // Format tối ưu cho xử lý
         );
 
         await _controller!.initialize();
-        setState(() {
-          _isInitialized = true;
-        });
+        
+        if (mounted) {
+          setState(() {
+            _isInitialized = true;
+          });
 
-        // Bắt đầu xử lý realtime
-        _startRealtimeProcessing();
+          // Bắt đầu xử lý realtime với image stream
+          _startImageStream();
+        }
       }
     } catch (e) {
       print('Error initializing camera: $e');
@@ -51,44 +60,49 @@ class _CameraScreenState extends State<CameraScreen> {
     }
   }
 
-  Future<void> _startRealtimeProcessing() async {
-    if (!_isInitialized || _controller == null) return;
+  /// Bắt đầu xử lý frame từ camera stream
+  void _startImageStream() {
+    if (_controller == null || !_controller!.value.isInitialized) return;
 
-    // Xử lý frame mỗi 2 giây để tránh quá tải
-    while (mounted && _isInitialized) {
-      if (!_isProcessing) {
-        await _processFrame();
+    _isStreamActive = true;
+    _controller!.startImageStream((CameraImage image) {
+      if (!_isStreamActive) return;
+      
+      // Kiểm tra xem có nên xử lý frame này không (frame rate control)
+      if (!_frameProcessor.shouldProcessFrame()) {
+        return;
       }
-      await Future.delayed(const Duration(seconds: 2));
-    }
+
+      // Xử lý frame trong background để không block UI
+      if (!_isProcessing) {
+        _processFrame(image);
+      }
+    });
   }
 
-  Future<void> _processFrame() async {
-    if (_controller == null || !_controller!.value.isInitialized) return;
+  /// Xử lý frame từ camera stream
+  Future<void> _processFrame(CameraImage image) async {
+    if (!mounted) return;
 
     setState(() {
       _isProcessing = true;
     });
 
     try {
-      final image = await _controller!.takePicture();
       final provider = Provider.of<TranslationProvider>(context, listen: false);
       
-      // Gọi dịch vụ dịch với đường dẫn file
-      await provider.translateCameraFrame(image.path);
+      // Xử lý frame trực tiếp từ CameraImage (không lưu file)
+      await provider.translateCameraImage(image);
       
       if (provider.currentResult != null && mounted) {
         setState(() {
           _currentTranslation = provider.currentResult!.text;
+          _currentConfidence = provider.currentResult!.confidence;
         });
       }
     } catch (e) {
       print('Error processing frame: $e');
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-        });
-      }
+      // Không hiển thị lỗi cho mỗi frame để tránh spam UI
     } finally {
       if (mounted) {
         setState(() {
@@ -98,6 +112,7 @@ class _CameraScreenState extends State<CameraScreen> {
     }
   }
 
+  /// Chụp ảnh và dịch (manual capture)
   Future<void> _captureAndTranslate() async {
     if (_controller == null || !_controller!.value.isInitialized) return;
 
@@ -164,6 +179,9 @@ class _CameraScreenState extends State<CameraScreen> {
 
   @override
   void dispose() {
+    _isStreamActive = false;
+    _controller?.stopImageStream();
+    _frameProcessor.reset();
     _controller?.dispose();
     super.dispose();
   }
@@ -174,6 +192,21 @@ class _CameraScreenState extends State<CameraScreen> {
       appBar: AppBar(
         title: const Text('Dịch Realtime'),
         centerTitle: true,
+        actions: [
+          // Hiển thị trạng thái xử lý
+          if (_isProcessing)
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+            ),
+        ],
       ),
       body: Stack(
         children: [
@@ -185,7 +218,8 @@ class _CameraScreenState extends State<CameraScreen> {
             const Center(
               child: CircularProgressIndicator(),
             ),
-          // Overlay hiển thị kết quả dịch
+          
+          // Overlay hiển thị kết quả dịch realtime
           Positioned(
             bottom: 0,
             left: 0,
@@ -198,19 +232,28 @@ class _CameraScreenState extends State<CameraScreen> {
                   end: Alignment.bottomCenter,
                   colors: [
                     Colors.transparent,
-                    Colors.black.withOpacity(0.8),
+                    Colors.black.withOpacity(0.9),
                   ],
                 ),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Kết quả dịch realtime
                   if (_currentTranslation != null)
                     Container(
+                      width: double.infinity,
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -220,6 +263,7 @@ class _CameraScreenState extends State<CameraScreen> {
                               Icon(
                                 Icons.translate,
                                 color: Theme.of(context).colorScheme.primary,
+                                size: 20,
                               ),
                               const SizedBox(width: 8),
                               const Text(
@@ -227,69 +271,85 @@ class _CameraScreenState extends State<CameraScreen> {
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 14,
+                                  color: Colors.grey,
                                 ),
                               ),
+                              const Spacer(),
+                              if (_currentConfidence != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _currentConfidence! > 0.7
+                                        ? Colors.green.withOpacity(0.2)
+                                        : Colors.orange.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    '${(_currentConfidence! * 100).toStringAsFixed(0)}%',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: _currentConfidence! > 0.7
+                                          ? Colors.green
+                                          : Colors.orange,
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 12),
                           Text(
                             _currentTranslation!,
-                            style: const TextStyle(fontSize: 16),
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ],
                       ),
                     ),
                   const SizedBox(height: 16),
+                  
+                  // Nút chụp ảnh manual
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      FloatingActionButton(
+                      FloatingActionButton.extended(
                         onPressed: _isProcessing ? null : _captureAndTranslate,
                         backgroundColor: Colors.white,
-                        child: _isProcessing
-                            ? const CircularProgressIndicator()
+                        icon: _isProcessing
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
                             : const Icon(Icons.camera_alt, color: Colors.black),
+                        label: const Text(
+                          'Chụp & Dịch',
+                          style: TextStyle(color: Colors.black),
+                        ),
                       ),
                     ],
+                  ),
+                  
+                  // Thông tin về realtime processing
+                  const SizedBox(height: 8),
+                  Text(
+                    'Đang xử lý realtime (~5 fps)',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ),
             ),
           ),
-          // Indicator xử lý
-          if (_isProcessing)
-            Positioned(
-              top: 20,
-              right: 20,
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      'Đang xử lý...',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ],
-                ),
-              ),
-            ),
         ],
       ),
     );
   }
 }
-
