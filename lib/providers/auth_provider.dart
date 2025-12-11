@@ -46,17 +46,15 @@ class AuthProvider extends ChangeNotifier {
     _authService.authStateChanges.listen((AuthState state) async {
       try {
         if (state.session?.user != null) {
-          _user = await _authService.getUserData(state.session!.user.id);
+          _user ??= await _authService.getUserData(state.session!.user.id);
           // Nếu getUserData trả về null, tạo user model từ auth data
-          if (_user == null) {
-            _user = UserModel(
+          _user ??= UserModel(
               uid: state.session!.user.id,
               email: state.session!.user.email ?? '',
               displayName: state.session!.user.userMetadata?['display_name'] ?? 
                           state.session!.user.email?.split('@')[0] ?? 'User',
               createdAt: DateTime.now(),
             );
-          }
         } else {
           _user = null;
         }
@@ -100,7 +98,30 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       return _user != null;
     } catch (e) {
-      _errorMessage = e.toString();
+      // Xử lý lỗi network và hiển thị message rõ ràng hơn
+      String errorMsg = e.toString();
+      
+      if (errorMsg.contains('SocketFailed') || errorMsg.contains('host lookup')) {
+        errorMsg = '''Không thể kết nối đến server. Vui lòng:
+• Kiểm tra kết nối internet
+• Đảm bảo thiết bị có kết nối WiFi/4G/5G
+• Thử lại sau vài giây''';
+      } else if (errorMsg.contains('timeout') || errorMsg.contains('TimeoutException')) {
+        errorMsg = 'Kết nối quá lâu. Vui lòng kiểm tra internet và thử lại.';
+      } else if (errorMsg.contains('Email already registered')) {
+        errorMsg = 'Email này đã được đăng ký. Vui lòng đăng nhập hoặc dùng email khác.';
+      } else if (errorMsg.contains('Invalid login credentials')) {
+        errorMsg = 'Email hoặc mật khẩu không đúng. Vui lòng thử lại.';
+      } else {
+        // Giữ nguyên message nhưng làm sạch
+        errorMsg = errorMsg
+            .replaceAll('Exception: ', '')
+            .replaceAll('Lỗi đăng ký: ', '')
+            .replaceAll('AuthRetryableFetchException(message: ', '')
+            .replaceAll('ClientException with ', '');
+      }
+      
+      _errorMessage = errorMsg;
       _isLoading = false;
       notifyListeners();
       return false;
@@ -148,7 +169,30 @@ class AuthProvider extends ChangeNotifier {
       
       return _user != null;
     } catch (e) {
-      _errorMessage = e.toString();
+      // Xử lý lỗi network và hiển thị message rõ ràng hơn
+      String errorMsg = e.toString();
+      
+      if (errorMsg.contains('SocketFailed') || errorMsg.contains('host lookup')) {
+        errorMsg = '''Không thể kết nối đến server. Vui lòng:
+• Kiểm tra kết nối internet
+• Đảm bảo thiết bị có kết nối WiFi/4G/5G
+• Thử lại sau vài giây''';
+      } else if (errorMsg.contains('timeout') || errorMsg.contains('TimeoutException')) {
+        errorMsg = 'Kết nối quá lâu. Vui lòng kiểm tra internet và thử lại.';
+      } else if (errorMsg.contains('Invalid login credentials')) {
+        errorMsg = 'Email hoặc mật khẩu không đúng. Vui lòng thử lại.';
+      } else if (errorMsg.contains('Email not confirmed')) {
+        errorMsg = 'Email chưa được xác nhận. Vui lòng kiểm tra email và click vào link xác nhận.';
+      } else {
+        // Giữ nguyên message nhưng làm sạch
+        errorMsg = errorMsg
+            .replaceAll('Exception: ', '')
+            .replaceAll('Lỗi đăng nhập: ', '')
+            .replaceAll('AuthRetryableFetchException(message: ', '')
+            .replaceAll('ClientException with ', '');
+      }
+      
+      _errorMessage = errorMsg;
       _isLoading = false;
       notifyListeners();
       print('SignIn error: $e');
@@ -157,9 +201,19 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
-    await _authService.signOut();
-    _user = null;
-    notifyListeners();
+    try {
+      await _authService.signOut();
+      _user = null;
+      _errorMessage = null;
+      notifyListeners();
+    } catch (e) {
+      // Ngay cả khi lỗi network, vẫn clear local user để logout
+      print('⚠️ Lỗi khi đăng xuất: $e');
+      print('⚠️ Vẫn clear local session để user có thể logout');
+      _user = null;
+      _errorMessage = null;
+      notifyListeners();
+    }
   }
 
   Future<void> refreshUser() async {

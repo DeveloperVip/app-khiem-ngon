@@ -1,0 +1,14 @@
+{
+  "actions": [
+    "xin_chao",
+    "cam_on",
+    "xin_loi"
+  ],
+  "action_display": {
+    "xin_chao": "Xin chào",
+    "cam_on": "Cảm ơn",
+    "xin_loi": "Xin lỗi"
+  },
+  "sequence_length": 30,
+  "num_keypoints": 1662
+}

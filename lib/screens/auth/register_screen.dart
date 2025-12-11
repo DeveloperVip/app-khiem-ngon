@@ -48,37 +48,72 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final hasUser = authProvider.user != null;
       
       if (hasSession || hasUser) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const MainHomeScreen()),
-        );
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const MainHomeScreen()),
+          );
+        }
       } else {
         // Thử refresh lại
         await authProvider.refreshUser();
         await Future.delayed(const Duration(milliseconds: 300));
         
-        if (authProvider.isAuthenticated || supabase.auth.currentSession != null) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const MainHomeScreen()),
-          );
+        if (mounted) {
+          if (authProvider.isAuthenticated || supabase.auth.currentSession != null) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const MainHomeScreen()),
+            );
+          }
         }
       }
     } else if (mounted) {
       // Hiển thị lỗi với message rõ ràng hơn
       final errorMsg = authProvider.errorMessage ?? 'Đăng ký thất bại';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            errorMsg.replaceAll('Exception: ', '').replaceAll('Lỗi đăng ký: ', ''),
+      
+      // Hiển thị dialog nếu là lỗi network để user dễ đọc hơn
+      if ((errorMsg.contains('Không thể kết nối') || errorMsg.contains('internet')) && mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.wifi_off, color: Colors.red),
+                SizedBox(width: 8),
+                Text('Lỗi kết nối'),
+              ],
+            ),
+            content: Text(errorMsg),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Đóng'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  if (mounted) {
+                    _handleRegister(); // Thử lại
+                  }
+                },
+                child: const Text('Thử lại'),
+              ),
+            ],
           ),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: 'Đóng',
-            textColor: Colors.white,
-            onPressed: () {},
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMsg),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Đóng',
+              textColor: Colors.white,
+              onPressed: () {},
+            ),
           ),
-        ),
-      );
+        );
+      }
     }
   }
 

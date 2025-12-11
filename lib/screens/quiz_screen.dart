@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 import 'package:provider/provider.dart';
 import '../models/lesson_model.dart';
 import '../services/supabase_service.dart';
@@ -23,8 +24,50 @@ class _QuizScreenState extends State<QuizScreen> {
   int _currentQuestionIndex = 0;
   Map<String, int> _answers = {};
   bool _isSubmitted = false;
-
   QuizResult? _result;
+  VideoPlayerController? _videoController;
+  bool _isVideoInitialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeVideo();
+  }
+
+  @override
+  void dispose() {
+    // Pause và dispose video controller đúng cách
+    _videoController?.pause();
+    _videoController?.dispose();
+    _videoController = null;
+    super.dispose();
+  }
+
+  void _initializeVideo() {
+    final question = widget.quiz.questions[_currentQuestionIndex];
+    if (question.videoUrl != null && question.videoUrl!.isNotEmpty) {
+      _videoController?.dispose();
+      _videoController = VideoPlayerController.networkUrl(
+        Uri.parse(question.videoUrl!),
+      );
+      _videoController!.initialize().then((_) {
+        if (mounted) {
+          setState(() {
+            _isVideoInitialized = true;
+          });
+        }
+      }).catchError((error) {
+        print('Error initializing video: $error');
+        if (mounted) {
+          setState(() {
+            _isVideoInitialized = false;
+          });
+        }
+      });
+    } else {
+      _isVideoInitialized = false;
+    }
+  }
 
   void _selectAnswer(int answerIndex) {
     if (!_isSubmitted) {
@@ -37,17 +80,31 @@ class _QuizScreenState extends State<QuizScreen> {
 
   void _nextQuestion() {
     if (_currentQuestionIndex < widget.quiz.questions.length - 1) {
+      // Dispose video controller trước khi chuyển câu hỏi
+      _videoController?.pause();
+      _videoController?.dispose();
+      _videoController = null;
+      
       setState(() {
         _currentQuestionIndex++;
+        _isVideoInitialized = false;
       });
+      _initializeVideo();
     }
   }
 
   void _previousQuestion() {
     if (_currentQuestionIndex > 0) {
+      // Dispose video controller trước khi chuyển câu hỏi
+      _videoController?.pause();
+      _videoController?.dispose();
+      _videoController = null;
+      
       setState(() {
         _currentQuestionIndex--;
+        _isVideoInitialized = false;
       });
+      _initializeVideo();
     }
   }
 
@@ -121,7 +178,7 @@ class _QuizScreenState extends State<QuizScreen> {
           // Progress
           Container(
             padding: const EdgeInsets.all(16),
-            color: Theme.of(context).colorScheme.surfaceVariant,
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
             child: Row(
               children: [
                 Expanded(
@@ -145,6 +202,47 @@ class _QuizScreenState extends State<QuizScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // Video display (nếu có)
+                  if (question.videoUrl != null && question.videoUrl!.isNotEmpty)
+                    Container(
+                      height: 250,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: _isVideoInitialized && _videoController != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  AspectRatio(
+                                    aspectRatio: _videoController!.value.aspectRatio,
+                                    child: VideoPlayer(_videoController!),
+                                  ),
+                                  IconButton(
+                                    icon: Icon(
+                                      _videoController!.value.isPlaying
+                                          ? Icons.pause
+                                          : Icons.play_arrow,
+                                      size: 48,
+                                      color: Colors.white,
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        _videoController!.value.isPlaying
+                                            ? _videoController!.pause()
+                                            : _videoController!.play();
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                            )
+                          : const Center(child: CircularProgressIndicator()),
+                    ),
+                  // Question card
                   Card(
                     elevation: 2,
                     child: Padding(
@@ -283,7 +381,7 @@ class _QuizScreenState extends State<QuizScreen> {
               color: Theme.of(context).colorScheme.surface,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   blurRadius: 4,
                   offset: const Offset(0, -2),
                 ),

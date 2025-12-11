@@ -1,0 +1,5 @@
+# Placeholder để giữ thư mục trong git
+# Copy model files vào đây:
+# - tf_lstm_best.tflite
+# - actions.json
+

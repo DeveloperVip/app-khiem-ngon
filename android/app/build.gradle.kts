@@ -1,13 +1,12 @@
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
     namespace = "com.example.flutter_application_initial"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -20,20 +19,37 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.flutter_application_initial"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        ndk {
+            abiFilters.add("arm64-v8a")
+            abiFilters.add("armeabi-v7a")
+        }
+    }
+
+    sourceSets["main"].jniLibs.srcDirs("src/main/jniLibs")
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+
+            pickFirsts.add("**/libtensorflowlite_jni.so")
+            pickFirsts.add("**/libtensorflowlite_c.so")
+            pickFirsts.add("**/libtensorflowlite_flex.so")
+            pickFirsts.add("**/libtensorflowlite_flex_jni.so")
+            pickFirsts.add("**/libtensorflowlite_flex_c.so")
+
+            // KHÔNG EXCLUDE org.tensorflow (KHÔNG ĐƯỢC!)
+            // excludes.add("**/org/tensorflow/lite/**")  <-- xoá dòng này
+        }
     }
 
     buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+        getByName("release") {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -41,4 +57,11 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.15.0") {
+        exclude(group = "org.tensorflow", module = "tensorflow-lite")
+        exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
+    }
 }

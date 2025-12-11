@@ -1,11 +1,9 @@
-import '../models/translation_result.dart';
-
 class UserUploadModel {
   final String id;
   final String userId;
   final String? videoUrl;
   final String? imageUrl;
-  final MediaType mediaType;
+  final String mediaType; // 'image' or 'video'
   final String? translation;
   final double? confidence;
   final DateTime uploadedAt;
@@ -32,7 +30,7 @@ class UserUploadModel {
       'user_id': userId,
       'video_url': videoUrl,
       'image_url': imageUrl,
-      'media_type': mediaType.toString().split('.').last,
+      'media_type': mediaType,
       'translation': translation,
       'confidence': confidence,
       'uploaded_at': uploadedAt.toIso8601String(),
@@ -43,24 +41,14 @@ class UserUploadModel {
 
   factory UserUploadModel.fromJson(Map<String, dynamic> json) {
     // Hỗ trợ cả camelCase và snake_case
-    final mediaTypeStr = json['media_type'] ?? json['mediaType'] ?? 'image';
-    MediaType mediaType;
-    try {
-      mediaType = MediaType.values.firstWhere(
-        (e) => e.toString().split('.').last == mediaTypeStr.toLowerCase() ||
-               e.toString() == mediaTypeStr,
-        orElse: () => MediaType.image,
-      );
-    } catch (e) {
-      mediaType = MediaType.image;
-    }
+    final mediaTypeStr = (json['media_type'] ?? json['mediaType'] ?? 'image').toString().toLowerCase();
 
     return UserUploadModel(
       id: json['id']?.toString() ?? '',
       userId: json['user_id']?.toString() ?? json['userId']?.toString() ?? '',
       videoUrl: json['video_url'] ?? json['videoUrl'],
       imageUrl: json['image_url'] ?? json['imageUrl'],
-      mediaType: mediaType,
+      mediaType: mediaTypeStr,
       translation: json['translation'],
       confidence: json['confidence']?.toDouble(),
       uploadedAt: json['uploaded_at'] != null

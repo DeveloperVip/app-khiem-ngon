@@ -2,7 +2,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/user_model.dart';
 
 class AuthService {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  SupabaseClient get _supabase {
+    try {
+      return Supabase.instance.client;
+    } catch (e) {
+      print('❌ Lỗi khi lấy Supabase client: $e');
+      print('❌ Đảm bảo đã khởi tạo Supabase trong main() với URL và anon key đúng');
+      rethrow;
+    }
+  }
 
   User? get currentUser => _supabase.auth.currentUser;
 
@@ -69,6 +77,21 @@ class AuthService {
         throw Exception('Email không hợp lệ. Vui lòng kiểm tra lại.');
       }
       
+      // Xử lý lỗi network
+      if (errorMessage.contains('failed host lookup') || 
+          errorMessage.contains('no address associated with hostname') ||
+          errorMessage.contains('socketexception')) {
+        throw Exception('Không thể kết nối đến server. Vui lòng kiểm tra:\n'
+            '• Thiết bị có internet (WiFi/4G/5G)\n'
+            '• Supabase project đang hoạt động (không bị pause)\n'
+            '• Thử restart app hoặc đổi mạng');
+      }
+      
+      // Xử lý timeout
+      if (errorMessage.contains('timeout') || errorMessage.contains('timed out')) {
+        throw Exception('Kết nối quá chậm hoặc timeout. Vui lòng thử lại sau.');
+      }
+      
       throw Exception('Lỗi đăng ký: ${e.toString()}');
     }
   }
@@ -103,13 +126,28 @@ class AuthService {
       }
       return null;
     } catch (e) {
-      final errorMessage = e.toString();
+      final errorMessage = e.toString().toLowerCase();
       
-      if (errorMessage.contains('Invalid login credentials')) {
+      // Xử lý lỗi network
+      if (errorMessage.contains('failed host lookup') || 
+          errorMessage.contains('no address associated with hostname') ||
+          errorMessage.contains('socketexception')) {
+        throw Exception('Không thể kết nối đến server. Vui lòng kiểm tra:\n'
+            '• Thiết bị có internet (WiFi/4G/5G)\n'
+            '• Supabase project đang hoạt động (không bị pause)\n'
+            '• Thử restart app hoặc đổi mạng');
+      }
+      
+      // Xử lý timeout
+      if (errorMessage.contains('timeout') || errorMessage.contains('timed out')) {
+        throw Exception('Kết nối quá chậm hoặc timeout. Vui lòng thử lại sau.');
+      }
+      
+      if (errorMessage.contains('invalid login credentials')) {
         throw Exception('Email hoặc mật khẩu không đúng. Vui lòng kiểm tra lại.');
       }
       
-      if (errorMessage.contains('Email not confirmed') || 
+      if (errorMessage.contains('email not confirmed') || 
           errorMessage.contains('email_not_confirmed')) {
         throw Exception('Email chưa được xác nhận. Vui lòng kiểm tra email và click vào link xác nhận.\n\nNếu bạn đang test, hãy tắt "Enable email confirmations" trong Supabase Dashboard > Authentication > Settings.');
       }
@@ -120,7 +158,26 @@ class AuthService {
 
   // Đăng xuất
   Future<void> signOut() async {
-    await _supabase.auth.signOut();
+    try {
+      await _supabase.auth.signOut();
+    } catch (e) {
+      // Nếu lỗi network, vẫn clear local session để user có thể logout
+      final errorStr = e.toString().toLowerCase();
+      if (errorStr.contains('failed host lookup') || 
+          errorStr.contains('no address associated with hostname') ||
+          errorStr.contains('socketexception')) {
+        print('⚠️ Không thể kết nối đến server khi đăng xuất, nhưng vẫn clear local session');
+        // Clear local session manually
+        try {
+          await _supabase.auth.signOut(scope: SignOutScope.local);
+        } catch (_) {
+          // Ignore nếu vẫn lỗi
+        }
+        return;
+      }
+      // Nếu lỗi khác, vẫn throw để caller biết
+      throw Exception('Lỗi đăng xuất: ${e.toString()}');
+    }
   }
 
   // Lấy thông tin user

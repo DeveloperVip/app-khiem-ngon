@@ -98,3 +98,4 @@ Nếu SMTP vẫn không hoạt động, bạn có thể:
 3. Xem logs trong Supabase Dashboard > Logs > Auth để biết chi tiết lỗi
 
 
+

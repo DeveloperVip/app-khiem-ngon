@@ -6,28 +6,170 @@ import '../models/user_upload_model.dart';
 class SupabaseService {
   final SupabaseClient _supabase = Supabase.instance.client;
 
+  /// Kiểm tra lỗi network và trả về message thân thiện
+  String _getNetworkErrorMessage(dynamic error) {
+    final errorStr = error.toString().toLowerCase();
+    
+    if (errorStr.contains('failed host lookup') || 
+        errorStr.contains('no address associated with hostname') ||
+        errorStr.contains('socketexception')) {
+      return 'Không thể kết nối đến server. Vui lòng kiểm tra:\n'
+          '• Thiết bị có internet (WiFi/4G/5G)\n'
+          '• Supabase project đang hoạt động (không bị pause)\n'
+          '• Thử restart app hoặc đổi mạng';
+    }
+    
+    if (errorStr.contains('timeout') || errorStr.contains('timed out')) {
+      return 'Kết nối quá chậm hoặc timeout. Vui lòng thử lại sau.';
+    }
+    
+    if (errorStr.contains('authretryablefetchexception')) {
+      return 'Lỗi xác thực. Vui lòng đăng nhập lại.';
+    }
+    
+    return 'Lỗi kết nối: ${error.toString()}';
+  }
+
   // ============ LESSONS ============
   Stream<List<LessonModel>> getLessons() {
-    return _supabase
-        .from('lessons')
-        .stream(primaryKey: ['id'])
-        .order('order')
-        .map((data) => data
-            .map((json) => LessonModel.fromJson(json))
-            .toList());
+    try {
+      return _supabase
+          .from('lessons')
+          .stream(primaryKey: ['id'])
+          .order('order', ascending: true) // Sắp xếp từ nhỏ đến lớn (1, 2, 3...)
+          .asyncMap((lessons) async {
+            try {
+              print('📚 Loading ${lessons.length} lessons...');
+              // Load contents và quiz cho mỗi lesson từ các bảng riêng
+              final List<LessonModel> result = [];
+              for (var lesson in lessons) {
+                try {
+                  final fullLesson = await getLesson(lesson['id']);
+                  if (fullLesson != null) {
+                    result.add(fullLesson);
+                    print('✅ Loaded lesson: ${fullLesson.title} (${fullLesson.contents.length} contents)');
+                  }
+                } catch (e) {
+                  print('❌ Error loading lesson ${lesson['id']}: $e');
+                  // Tiếp tục với lesson khác thay vì dừng lại
+                }
+              }
+              print('✅ Total loaded: ${result.length} lessons');
+              return result;
+            } catch (e) {
+              print('❌ Error in asyncMap: $e');
+              rethrow;
+            }
+          }).handleError((error) {
+            print('❌ Stream error in getLessons: $error');
+            final friendlyMessage = _getNetworkErrorMessage(error);
+            print('💡 $friendlyMessage');
+            // Trả về empty list thay vì throw để app không crash
+            return <LessonModel>[];
+          });
+    } catch (e) {
+      print('❌ Error creating stream: $e');
+      // Return empty stream với error
+      return Stream.value(<LessonModel>[]);
+    }
   }
 
   Future<LessonModel?> getLesson(String lessonId) async {
     try {
-      final response = await _supabase
+      print('📖 Loading lesson: $lessonId');
+      
+      // 1. Lấy lesson
+      final lesson = await _supabase
           .from('lessons')
           .select()
           .eq('id', lessonId)
           .single();
+      print('✅ Loaded lesson data: ${lesson['title']}');
 
-      return LessonModel.fromJson(response);
-    } catch (e) {
-      throw Exception('Lỗi lấy lesson: ${e.toString()}');
+      // 2. Lấy contents từ bảng lesson_contents
+      final contentsData = await _supabase
+          .from('lesson_contents')
+          .select()
+          .eq('lesson_id', lessonId)
+          .order('order');
+      print('✅ Loaded ${contentsData.length} contents');
+
+      // 3. Lấy quiz và questions từ các bảng riêng
+      QuizModel? quiz;
+      final quizData = await _supabase
+          .from('quizzes')
+          .select()
+          .eq('lesson_id', lessonId)
+          .maybeSingle();
+
+      if (quizData != null) {
+        print('✅ Found quiz: ${quizData['id']}');
+        final questionsData = await _supabase
+            .from('quiz_questions')
+            .select()
+            .eq('quiz_id', quizData['id'])
+            .order('order');
+        print('✅ Loaded ${questionsData.length} questions');
+
+        // Load options cho mỗi question
+        final List<Map<String, dynamic>> questions = [];
+        for (var question in questionsData) {
+          final optionsData = await _supabase
+              .from('quiz_options')
+              .select()
+              .eq('question_id', question['id'])
+              .order('order');
+
+          final options = optionsData.map((opt) => opt['option_text'] as String).toList();
+
+          questions.add({
+            'id': question['id'],
+            'question': question['question'],
+            'videoUrl': question['video_url'],
+            'options': options,
+            'correctAnswerIndex': question['correct_answer_index'],
+            'explanation': question['explanation'],
+          });
+        }
+
+        quiz = QuizModel(
+          id: quizData['id'],
+          lessonId: lessonId,
+          questions: questions.map((q) => QuizQuestion.fromJson(q)).toList(),
+        );
+      } else {
+        print('ℹ️ No quiz found for this lesson');
+      }
+
+      // 4. Build LessonModel từ dữ liệu normalized
+      final lessonModel = LessonModel(
+        id: lesson['id'],
+        title: lesson['title'],
+        description: lesson['description'],
+        order: lesson['order'],
+        thumbnailUrl: lesson['thumbnail_url'],
+        estimatedDuration: lesson['estimated_duration'] ?? 0,
+        contents: (contentsData as List)
+            .map((c) => LessonContent(
+                  id: c['id'],
+                  type: c['content_type'] == 'video' ? ContentType.video : ContentType.image,
+                  videoUrl: c['video_url'],
+                  imageUrl: c['image_url'],
+                  translation: c['translation'],
+                  description: c['description'],
+                  order: c['order'],
+                ))
+            .toList(),
+        quiz: quiz,
+      );
+      
+      print('✅ Built LessonModel: ${lessonModel.title} with ${lessonModel.contents.length} contents');
+      return lessonModel;
+    } catch (e, stackTrace) {
+      print('❌ Error loading lesson $lessonId: $e');
+      print('Stack trace: $stackTrace');
+      final friendlyMessage = _getNetworkErrorMessage(e);
+      throw Exception(friendlyMessage);
     }
   }
 

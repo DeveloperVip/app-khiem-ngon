@@ -12,17 +12,52 @@ class MainHomeScreen extends StatefulWidget {
 
 class _MainHomeScreenState extends State<MainHomeScreen> {
   int _currentIndex = 0;
+  
+  // Lazy initialization - chỉ tạo khi cần và được chọn
+  Widget? _lessonsScreen;
+  Widget? _cameraScreen;
+  Widget? _profileScreen;
 
-  final List<Widget> _screens = [
-    const LessonsScreen(),
-    const CameraScreen(),
-    const ProfileScreen(),
-  ];
+  Widget _buildCurrentScreen() {
+    Widget screen;
+    switch (_currentIndex) {
+      case 0:
+        _lessonsScreen ??= const LessonsScreen();
+        screen = _lessonsScreen!;
+        print('🏠 MainHomeScreen: Returning LessonsScreen');
+      case 1:
+        _cameraScreen ??= const CameraScreen();
+        screen = _cameraScreen!;
+        print('🏠 MainHomeScreen: Returning CameraScreen');
+      case 2:
+        _profileScreen ??= const ProfileScreen();
+        screen = _profileScreen!;
+        print('🏠 MainHomeScreen: Returning ProfileScreen');
+      default:
+        _lessonsScreen ??= const LessonsScreen();
+        screen = _lessonsScreen!;
+        print('🏠 MainHomeScreen: Returning default LessonsScreen');
+    }
+    return Container(
+      color: Colors.white,
+      child: screen,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    print('🏠 MainHomeScreen: Building with index=$_currentIndex');
+    final currentScreen = _buildCurrentScreen();
+    print('🏠 MainHomeScreen: Current screen type: ${currentScreen.runtimeType}');
+    
     return Scaffold(
-      body: _screens[_currentIndex],
+      backgroundColor: Colors.white, // Đảm bảo có background color
+      body: Container(
+        color: Colors.white, // Đảm bảo container có màu trắng
+        child: SafeArea(
+          child: currentScreen, // Chỉ render screen đang được chọn
+        ),
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
@@ -51,6 +86,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
     );
   }
 }
+
 
 
 

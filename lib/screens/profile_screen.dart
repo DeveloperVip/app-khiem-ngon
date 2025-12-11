@@ -8,8 +8,9 @@ import '../services/supabase_service.dart';
 import '../services/media_service.dart';
 import '../services/translation_service.dart';
 import '../models/user_upload_model.dart';
-import '../models/translation_result.dart';
 import 'auth/login_screen.dart';
+import 'upload_detail_screen.dart';
+import 'storage_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -20,6 +21,7 @@ class ProfileScreen extends StatelessWidget {
       builder: (context, authProvider, _) {
         if (!authProvider.isAuthenticated) {
           return Scaffold(
+            backgroundColor: Colors.white,
             appBar: AppBar(title: const Text('Cá nhân')),
             body: Center(
               child: Column(
@@ -71,15 +73,18 @@ class _ProfileContentState extends State<_ProfileContent> {
 
   @override
   Widget build(BuildContext context) {
-    final formatBytes = (int bytes) {
+    String formatBytes(int bytes) {
       if (bytes < 1024) return '$bytes B';
       if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
       return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    };
+    }
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text('Cá nhân'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
@@ -224,12 +229,29 @@ class _ProfileContentState extends State<_ProfileContent> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  const Text(
-                    'Uploads của tôi',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Lưu trữ',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const StorageScreen(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.arrow_forward_ios, size: 14),
+                        label: const Text('Xem tất cả'),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   StreamBuilder<List<UserUploadModel>>(
@@ -240,8 +262,21 @@ class _ProfileContentState extends State<_ProfileContent> {
                       }
 
                       if (snapshot.hasError) {
-                        return Center(
-                          child: Text('Lỗi: ${snapshot.error}'),
+                        return Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              children: [
+                                const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Lỗi: ${snapshot.error}',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(color: Colors.red),
+                                ),
+                              ],
+                            ),
+                          ),
                         );
                       }
 
@@ -257,8 +292,17 @@ class _ProfileContentState extends State<_ProfileContent> {
                                     size: 64, color: Colors.grey[400]),
                                 const SizedBox(height: 16),
                                 Text(
-                                  'Chưa có upload nào',
+                                  'Chưa có file nào được lưu',
                                   style: TextStyle(color: Colors.grey[600]),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Upload ảnh hoặc video để dịch và lưu trữ',
+                                  style: TextStyle(
+                                    color: Colors.grey[500],
+                                    fontSize: 12,
+                                  ),
+                                  textAlign: TextAlign.center,
                                 ),
                               ],
                             ),
@@ -266,14 +310,28 @@ class _ProfileContentState extends State<_ProfileContent> {
                         );
                       }
 
-                      return ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: uploads.length,
-                        itemBuilder: (context, index) {
-                          final upload = uploads[index];
-                          return _buildUploadCard(context, upload);
-                        },
+                      // Hiển thị 3 uploads gần nhất
+                      final recentUploads = uploads.take(3).toList();
+                      return Column(
+                        children: [
+                          ...recentUploads.map((upload) => _buildUploadCard(context, upload)),
+                          if (uploads.length > 3)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: TextButton.icon(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const StorageScreen(),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.arrow_forward),
+                                label: Text('Xem thêm ${uploads.length - 3} file'),
+                              ),
+                            ),
+                        ],
                       );
                     },
                   ),
@@ -321,7 +379,7 @@ class _ProfileContentState extends State<_ProfileContent> {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ListTile(
-        leading: upload.mediaType == MediaType.video
+        leading: upload.mediaType == 'video'
             ? const Icon(Icons.video_library, size: 40)
             : upload.imageUrl != null
                 ? Image.network(
@@ -364,6 +422,7 @@ class _ProfileContentState extends State<_ProfileContent> {
   Future<void> _uploadMedia(BuildContext context, {required bool isImage}) async {
     // Kiểm tra giới hạn
     if (widget.user.totalUploads >= SupabaseService.maxUploadsPerUser) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Bạn đã đạt giới hạn số lượng uploads'),
@@ -374,6 +433,7 @@ class _ProfileContentState extends State<_ProfileContent> {
     }
 
     if (widget.user.totalStorageUsed >= SupabaseService.maxTotalStorage) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Bạn đã đạt giới hạn dung lượng lưu trữ'),
@@ -395,70 +455,106 @@ class _ProfileContentState extends State<_ProfileContent> {
           ? SupabaseService.maxFileSizeImage
           : SupabaseService.maxFileSizeVideo;
 
+      if (!mounted) return;
+      final currentContext = context;
+      
       if (fileSize > maxSize) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'File quá lớn. Giới hạn: ${(maxSize / (1024 * 1024)).toStringAsFixed(1)} MB',
-              ),
-              backgroundColor: Colors.red,
+        ScaffoldMessenger.of(currentContext).showSnackBar(
+          SnackBar(
+            content: Text(
+              'File quá lớn. Giới hạn: ${(maxSize / (1024 * 1024)).toStringAsFixed(1)} MB',
             ),
-          );
-        }
+            backgroundColor: Colors.red,
+          ),
+        );
         return;
       }
 
       // Show loading
-      if (mounted) {
+      final navigator = Navigator.of(currentContext);
+      final scaffoldMessenger = ScaffoldMessenger.of(currentContext);
+      
+      try {
         showDialog(
-          context: context,
+          context: currentContext,
           barrierDismissible: false,
           builder: (context) => const Center(
             child: CircularProgressIndicator(),
           ),
         );
-      }
 
-      // Upload to Firebase Storage
-      final mediaUrl = await _supabaseService.uploadMedia(
-        file: File(file.path),
-        userId: widget.user.uid,
-        mediaType: isImage ? 'image' : 'video',
-      );
+        // Upload to Firebase Storage
+        final mediaUrl = await _supabaseService.uploadMedia(
+          file: File(file.path),
+          userId: widget.user.uid,
+          mediaType: isImage ? 'image' : 'video',
+        );
 
-      // Translate
-      final translationResult = isImage
-          ? await _translationService.translateImage(file.path)
-          : await _translationService.translateVideo(file.path);
+        // Translate
+        final translationResult = isImage
+            ? await _translationService.translateImage(file.path)
+            : await _translationService.translateVideo(file.path);
 
-      // Save to Firestore
-      await _supabaseService.saveUserUpload(
-        userId: widget.user.uid,
-        mediaUrl: mediaUrl,
-        mediaType: isImage ? 'image' : 'video',
-        fileSize: fileSize,
-        fileName: file.path.split('/').last,
-        translation: translationResult.text,
-        confidence: translationResult.confidence,
-      );
+        // Save to database
+        final savedUpload = await _supabaseService.saveUserUpload(
+          userId: widget.user.uid,
+          mediaUrl: mediaUrl,
+          mediaType: isImage ? 'image' : 'video',
+          fileSize: fileSize,
+          fileName: file.path.split('/').last,
+          translation: translationResult.text,
+          confidence: translationResult.confidence,
+        );
 
-      // Refresh user data
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      await authProvider.refreshUser();
+        // Refresh user data
+        if (!mounted) return;
+        final authProvider = Provider.of<AuthProvider>(currentContext, listen: false);
+        await authProvider.refreshUser();
 
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Upload thành công!'),
-            backgroundColor: Colors.green,
+        if (!mounted) return;
+        navigator.pop(); // Đóng loading dialog
+        
+        // Mở màn hình chi tiết để hiển thị kết quả
+        if (mounted) {
+          navigator.push(
+            MaterialPageRoute(
+              builder: (context) => UploadDetailScreen(upload: savedUpload),
+            ),
+          );
+        }
+        
+        if (mounted) {
+          scaffoldMessenger.showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Upload thành công! Độ tin cậy: ${(translationResult.confidence * 100).toStringAsFixed(1)}%',
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
+        navigator.pop();
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Lỗi: ${e.toString()}'),
+            backgroundColor: Colors.red,
           ),
         );
       }
     } catch (e) {
+      // Handle outer try-catch if needed
       if (mounted) {
-        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Lỗi: ${e.toString()}'),
@@ -488,64 +584,41 @@ class _ProfileContentState extends State<_ProfileContent> {
       ),
     );
 
-    if (confirm == true) {
-      try {
-        await _supabaseService.deleteUserUpload(upload.id, widget.user.uid);
-        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        await authProvider.refreshUser();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Đã xóa thành công'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Lỗi: ${e.toString()}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+    if (confirm != true) return;
+    if (!mounted) return;
+    
+    final currentContext = context;
+    final scaffoldMessenger = ScaffoldMessenger.of(currentContext);
+    
+    try {
+      await _supabaseService.deleteUserUpload(upload.id, widget.user.uid);
+      if (!mounted) return;
+      final authProvider = Provider.of<AuthProvider>(currentContext, listen: false);
+      await authProvider.refreshUser();
+      if (!mounted) return;
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Text('Đã xóa thành công'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('Lỗi: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
   void _showUploadDetail(BuildContext context, UserUploadModel upload) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Chi tiết upload'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (upload.translation != null) ...[
-                const Text(
-                  'Bản dịch:',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Text(upload.translation!),
-                const SizedBox(height: 16),
-              ],
-              if (upload.confidence != null)
-                Text(
-                  'Độ tin cậy: ${(upload.confidence! * 100).toStringAsFixed(1)}%',
-                ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Đóng'),
-          ),
-        ],
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => UploadDetailScreen(upload: upload),
       ),
     );
   }

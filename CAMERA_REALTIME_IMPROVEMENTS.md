@@ -217,3 +217,4 @@ if (processingTime > 300ms) {
 - [ML Kit](https://pub.dev/packages/google_mlkit_vision)
 - [Flutter Isolates](https://docs.flutter.dev/perf/rendering/best-practices#use-isolates-for-expensive-computations)
 
+

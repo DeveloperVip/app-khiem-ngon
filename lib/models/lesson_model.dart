@@ -138,6 +138,7 @@ class QuizQuestion {
   final List<String> options;
   final int correctAnswerIndex;
   final String? explanation;
+  final String? videoUrl; // Video mô tả câu hỏi
 
   QuizQuestion({
     required this.id,
@@ -145,6 +146,7 @@ class QuizQuestion {
     required this.options,
     required this.correctAnswerIndex,
     this.explanation,
+    this.videoUrl,
   });
 
   Map<String, dynamic> toJson() {
@@ -154,6 +156,7 @@ class QuizQuestion {
       'options': options,
       'correctAnswerIndex': correctAnswerIndex,
       'explanation': explanation,
+      'videoUrl': videoUrl,
     };
   }
 
@@ -164,9 +167,11 @@ class QuizQuestion {
       options: List<String>.from(json['options'] ?? []),
       correctAnswerIndex: json['correctAnswerIndex'] ?? 0,
       explanation: json['explanation'],
+      videoUrl: json['videoUrl'],
     );
   }
 }
+
 
 
 

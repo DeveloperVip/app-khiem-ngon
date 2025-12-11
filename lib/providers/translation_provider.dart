@@ -6,6 +6,7 @@ import '../services/translation_service.dart';
 
 class TranslationProvider extends ChangeNotifier {
   final TranslationService _translationService = TranslationService();
+  bool _isServiceInitialized = false;
 
   List<TranslationResult> _history = [];
   TranslationResult? _currentResult;
@@ -16,6 +17,22 @@ class TranslationProvider extends ChangeNotifier {
   TranslationResult? get currentResult => _currentResult;
   bool get isProcessing => _isProcessing;
   String? get errorMessage => _errorMessage;
+  bool get isReady => _translationService.isReady; // Trạng thái ML service
+
+  /// Khởi tạo ML service (gọi một lần khi app start)
+  Future<void> initializeService() async {
+    if (_isServiceInitialized) return;
+    
+    try {
+      await _translationService.initialize();
+      _isServiceInitialized = true;
+      debugPrint('✅ TranslationProvider: Service đã được khởi tạo');
+    } catch (e) {
+      _errorMessage = 'Lỗi khởi tạo ML service: ${e.toString()}';
+      debugPrint('❌ TranslationProvider: $e');
+      notifyListeners();
+    }
+  }
 
   Future<void> translateImage(String imagePath) async {
     _isProcessing = true;
@@ -72,28 +89,72 @@ class TranslationProvider extends ChangeNotifier {
     }
   }
 
-  /// Xử lý frame từ camera stream trực tiếp (hiệu quả hơn)
+  /// Xử lý frame từ camera stream trực tiếp (REALTIME CONTINUOUS MODE)
+  /// Logic giống realtime_demo.py - threshold 0.8
   Future<void> translateCameraImage(CameraImage cameraImage) async {
+    // Đảm bảo service đã được khởi tạo
+    if (!_isServiceInitialized) {
+      await initializeService();
+    }
+
     // Không set _isProcessing = true để tránh flicker UI
-    // Chỉ update khi có kết quả
     _errorMessage = null;
 
     try {
-      final result = await _translationService.translateCameraImage(cameraImage);
-      _currentResult = result;
-      // Chỉ thêm vào history nếu kết quả khác với kết quả trước đó
-      if (_history.isEmpty || _history.first.text != result.text) {
+      // Dùng translateCameraImageRealtime với threshold 0.8
+      final result = await _translationService.translateCameraImageRealtime(cameraImage);
+      
+      // result có thể null nếu chưa đủ frames hoặc confidence < 0.8
+      if (result != null) {
+        _currentResult = result;
+        // Chỉ thêm vào history nếu kết quả khác với kết quả trước đó
+        if (_history.isEmpty || _history.first.text != result.text) {
+          _history.insert(0, result);
+          if (_history.length > 50) {
+            _history.removeRange(50, _history.length);
+          }
+        }
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Error translating camera frame: $e');
+    }
+  }
+
+  /// Dictionary Mode: Ghi 30 frames rồi predict
+  /// Logic giống dictionary_mode.py - threshold 0.6
+  Future<void> translateDictionarySequence(List<CameraImage> frames) async {
+    if (!_isServiceInitialized) {
+      await initializeService();
+    }
+
+    _isProcessing = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final result = await _translationService.translateDictionarySequence(frames);
+      
+      if (result != null) {
+        _currentResult = result;
         _history.insert(0, result);
-        // Giới hạn history để tránh memory leak
         if (_history.length > 50) {
           _history.removeRange(50, _history.length);
         }
       }
+      
+      _isProcessing = false;
       notifyListeners();
     } catch (e) {
-      // Không hiển thị lỗi cho mỗi frame để tránh spam
-      debugPrint('Error translating camera frame: $e');
+      _errorMessage = 'Lỗi khi dịch dictionary sequence: ${e.toString()}';
+      _isProcessing = false;
+      notifyListeners();
     }
+  }
+
+  /// Reset sequence buffer (gọi khi dừng camera)
+  void resetSequence() {
+    _translationService.resetSequence();
   }
 
   void clearHistory() {
@@ -105,6 +166,12 @@ class TranslationProvider extends ChangeNotifier {
   void clearError() {
     _errorMessage = null;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _translationService.dispose();
+    super.dispose();
   }
 }
 

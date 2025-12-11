@@ -63,18 +63,25 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
 
   @override
   void dispose() {
+    // Pause và dispose video controller đúng cách
+    _videoController?.pause();
     _videoController?.dispose();
+    _videoController = null;
     super.dispose();
   }
 
   void _nextContent() {
     if (_currentContentIndex < widget.lesson.contents.length - 1) {
+      // Dispose video controller trước khi chuyển content
+      _videoController?.pause();
+      _videoController?.dispose();
+      _videoController = null;
+      
       setState(() {
         _currentContentIndex++;
-        _videoController?.dispose();
         _isVideoInitialized = false;
-        _initializeVideo();
       });
+      _initializeVideo();
       _saveProgress();
     } else {
       _showCompleteDialog();
@@ -83,12 +90,16 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
 
   void _previousContent() {
     if (_currentContentIndex > 0) {
+      // Dispose video controller trước khi chuyển content
+      _videoController?.pause();
+      _videoController?.dispose();
+      _videoController = null;
+      
       setState(() {
         _currentContentIndex--;
-        _videoController?.dispose();
         _isVideoInitialized = false;
-        _initializeVideo();
       });
+      _initializeVideo();
       _saveProgress();
     }
   }
@@ -175,7 +186,7 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
           // Progress indicator
           Container(
             padding: const EdgeInsets.all(16),
-            color: Theme.of(context).colorScheme.surfaceVariant,
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
             child: Row(
               children: [
                 Expanded(
@@ -312,7 +323,7 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
               color: Theme.of(context).colorScheme.surface,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   blurRadius: 4,
                   offset: const Offset(0, -2),
                 ),

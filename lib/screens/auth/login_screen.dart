@@ -46,7 +46,7 @@ class _LoginScreenState extends State<LoginScreen> {
       print('Login: Error = $errorMsg');
       
       // Hiển thị dialog nếu là lỗi email chưa xác nhận
-      if (errorMsg.contains('Email chưa được xác nhận')) {
+      if (errorMsg.contains('Email chưa được xác nhận') && mounted) {
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
@@ -66,7 +66,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ],
           ),
         );
-      } else {
+      } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(errorMsg),
@@ -76,7 +76,9 @@ class _LoginScreenState extends State<LoginScreen> {
               label: 'Đóng',
               textColor: Colors.white,
               onPressed: () {
-                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                }
               },
             ),
           ),
@@ -96,27 +98,31 @@ class _LoginScreenState extends State<LoginScreen> {
       
       print('Login: Final check - hasSession: $hasSession, hasUser: $hasUser');
       
-      if (hasSession || hasUser) {
+        if (hasSession || hasUser) {
         // Navigate và replace LoginScreen bằng MainHomeScreen
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const MainHomeScreen()),
-        );
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const MainHomeScreen()),
+          );
+        }
       } else {
         // Nếu vẫn không có session/user, thử refresh lại
         await authProvider.refreshUser();
         await Future.delayed(const Duration(milliseconds: 300));
         
-        if (authProvider.isAuthenticated || supabase.auth.currentSession != null) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const MainHomeScreen()),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Đăng nhập thành công nhưng có lỗi khi load thông tin. Vui lòng thử lại.'),
-              backgroundColor: Colors.orange,
-            ),
-          );
+        if (mounted) {
+          if (authProvider.isAuthenticated || supabase.auth.currentSession != null) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const MainHomeScreen()),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Đăng nhập thành công nhưng có lỗi khi load thông tin. Vui lòng thử lại.'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
         }
       }
     }
