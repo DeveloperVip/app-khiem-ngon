@@ -191,3 +191,5 @@ Phải thấy `libtensorflowlite_c.so` trong các thư mục `lib/armeabi-v7a/`,
 
 
 
+
+

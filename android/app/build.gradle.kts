@@ -7,7 +7,35 @@ plugins {
 android {
     namespace = "com.example.flutter_application_initial"
     compileSdk = 36
-    ndkVersion = flutter.ndkVersion
+
+    defaultConfig {
+        applicationId = "com.example.flutter_application_initial"
+        minSdk = 26
+        targetSdk = flutter.targetSdkVersion
+
+        versionCode = 1
+        versionName = "1.0"
+
+        // Hỗ trợ cả ARM (điện thoại thật) và x86_64 (emulator)
+        // TFLite Flex sẽ chỉ hoạt động trên ARM
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+        }
+    }
+
+    packaging {
+        jniLibs.useLegacyPackaging = true
+        
+        // Xử lý trùng lặp native libraries
+        jniLibs.pickFirsts += listOf(
+            "**/libtensorflowlite_jni.so",
+            "**/libtensorflowlite_c.so",
+            "**/libtensorflowlite_flex.so",
+            "**/libtensorflowlite_flex_jni.so",
+            "**/libtensorflowlite_flex_c.so",
+            "**/libc++_shared.so"
+        )
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -15,44 +43,15 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
+        jvmTarget = "11"
     }
+}
 
-    defaultConfig {
-        applicationId = "com.example.flutter_application_initial"
-        minSdk = 26
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
-
-        ndk {
-            abiFilters.add("arm64-v8a")
-            abiFilters.add("armeabi-v7a")
-        }
-    }
-
-    sourceSets["main"].jniLibs.srcDirs("src/main/jniLibs")
-
-    packaging {
-        jniLibs {
-            useLegacyPackaging = true
-
-            pickFirsts.add("**/libtensorflowlite_jni.so")
-            pickFirsts.add("**/libtensorflowlite_c.so")
-            pickFirsts.add("**/libtensorflowlite_flex.so")
-            pickFirsts.add("**/libtensorflowlite_flex_jni.so")
-            pickFirsts.add("**/libtensorflowlite_flex_c.so")
-
-            // KHÔNG EXCLUDE org.tensorflow (KHÔNG ĐƯỢC!)
-            // excludes.add("**/org/tensorflow/lite/**")  <-- xoá dòng này
-        }
-    }
-
-    buildTypes {
-        getByName("release") {
-            signingConfig = signingConfigs.getByName("debug")
-        }
-    }
+// Loại bỏ LiteRT để tránh xung đột với TensorFlow Lite
+configurations.all {
+    exclude(group = "com.google.ai.edge.litert")
+    exclude(group = "com.google.ai.edge.litert", module = "litert")
+    exclude(group = "com.google.ai.edge.litert", module = "litert-api")
 }
 
 flutter {
@@ -60,8 +59,12 @@ flutter {
 }
 
 dependencies {
-    implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.15.0") {
-        exclude(group = "org.tensorflow", module = "tensorflow-lite")
-        exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
+    // TensorFlow Lite - sẽ chỉ có native libs cho ARM
+    // App sẽ vẫn chạy trên x86 nhưng không có ML
+    implementation("org.tensorflow:tensorflow-lite:2.14.0") {
+        exclude(group = "com.google.ai.edge.litert")
+    }
+    implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.14.0") {
+        exclude(group = "com.google.ai.edge.litert")
     }
 }

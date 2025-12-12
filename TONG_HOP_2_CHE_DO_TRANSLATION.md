@@ -229,3 +229,5 @@ Cả 2 chế độ đều dùng **cùng 1 model LSTM** đã train, chỉ khác c
 
 
 
+
+

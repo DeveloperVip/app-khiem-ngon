@@ -30,3 +30,5 @@ flutter logs | Select-String -Pattern "MainActivity|flex|interpreter|ML|Đợi"
 
 
 
+
+

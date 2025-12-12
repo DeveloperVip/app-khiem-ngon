@@ -1,16 +1,16 @@
 import 'package:flutter/services.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
 import 'dart:convert';
 
 /// Service để load và chạy TensorFlow Lite model
+/// Sử dụng native Android inference với Flex Delegate support
 class MLService {
   static const String _modelPath = 'assets/models/tf_lstm_best.tflite';
   static const String _actionsPath = 'assets/models/actions.json';
   static const MethodChannel _channel = MethodChannel('com.example.flutter_application_initial/tflite');
   
-  Interpreter? _interpreter;
   Map<String, dynamic>? _actionsData;
   bool _isInitialized = false;
+  bool _modelLoaded = false;
 
   /// Khởi tạo model và load metadata
   Future<void> initialize() async {
@@ -20,107 +20,28 @@ class MLService {
       print('📦 Đang load TensorFlow Lite model...');
       print('   Đường dẫn: $_modelPath');
       
-      // Load model bytes từ assets
-      ByteData modelBytes;
+      // Load model qua native Android code
       try {
-        modelBytes = await rootBundle.load(_modelPath);
-        print('✅ Đã load model file thành công (${modelBytes.lengthInBytes} bytes)');
+        print('📦 Đang gọi native loadModel...');
+        await _channel.invokeMethod('loadModel', {'modelPath': _modelPath});
+        _modelLoaded = true;
+        print('✅ Đã load model thành công qua native code!');
+        
+        // Lấy input/output shapes
+        try {
+          final inputShape = await _channel.invokeMethod('getInputShape');
+          final outputShape = await _channel.invokeMethod('getOutputShape');
+          print('   Input shape: $inputShape');
+          print('   Output shape: $outputShape');
+        } catch (e) {
+          print('⚠️ Không thể lấy shapes: $e');
+        }
       } catch (e) {
-        print('❌ Không thể load model file từ assets: $e');
+        print('❌ Không thể load model qua native code: $e');
         print('❌ Kiểm tra:');
         print('   1. File có tồn tại tại: $_modelPath');
         print('   2. Đã khai báo trong pubspec.yaml: assets: - assets/models/');
-        print('   3. Đã chạy flutter pub get và rebuild app');
-        _isInitialized = true;
-        return;
-      }
-      
-      // Tạo Interpreter - FlexDelegate đã được load trong MainActivity
-      try {
-        print('📦 Đang khởi tạo TensorFlow Lite interpreter...');
-        print('   Model size: ${modelBytes.lengthInBytes} bytes (${(modelBytes.lengthInBytes / 1024 / 1024).toStringAsFixed(2)} MB)');
-        print('   ⚠️ Model sử dụng SELECT_TF_OPS');
-        
-        // Kiểm tra FlexDelegate từ native side
-        bool flexReady = false;
-        try {
-          flexReady = await _channel.invokeMethod<bool>('isFlexDelegateReady') ?? false;
-          if (flexReady) {
-            print('   ✅ FlexDelegate đã được load trong MainActivity');
-          } else {
-            print('   ⚠️ FlexDelegate chưa sẵn sàng');
-          }
-        } catch (e) {
-          print('   ⚠️ Không thể kiểm tra FlexDelegate: $e');
-        }
-        
-        // QUAN TRỌNG: Đảm bảo FlexDelegate được register trước khi tạo Interpreter
-        if (flexReady) {
-          print('   ⏳ Đảm bảo FlexDelegate được register...');
-          try {
-            await _channel.invokeMethod('ensureFlexDelegateReady');
-          } catch (e) {
-            print('   ⚠️ Không thể ensure FlexDelegate: $e');
-          }
-          // Đợi thêm để đảm bảo FlexDelegate được link hoàn toàn
-          await Future.delayed(const Duration(seconds: 2));
-        } else {
-          print('   ⚠️ FlexDelegate chưa được load, đợi 5 giây...');
-          await Future.delayed(const Duration(seconds: 5));
-        }
-        
-        // Khởi tạo Interpreter - FlexDelegate sẽ tự động được sử dụng nếu đã load
-        print('   🔄 Đang tạo interpreter...');
-        
-        try {
-          // Tạo Interpreter với options đơn giản
-          final options = InterpreterOptions();
-          options.threads = 2;
-          
-          _interpreter = Interpreter.fromBuffer(
-            modelBytes.buffer.asUint8List(),
-            options: options,
-          );
-          print('   ✅ Đã tạo interpreter thành công!');
-        } catch (e) {
-          print('   ❌ Lỗi khi tạo interpreter: $e');
-          print('   ⚠️ FlexDelegate có thể chưa được apply');
-          print('   ⚠️ Đang thử lại với options khác...');
-          
-          // Thử lại không có options
-          try {
-            await Future.delayed(const Duration(seconds: 1));
-            _interpreter = Interpreter.fromBuffer(
-              modelBytes.buffer.asUint8List(),
-            );
-            print('   ✅ Thành công khi thử lại!');
-          } catch (e2) {
-            print('   ❌ Vẫn thất bại: $e2');
-            print('   ⚠️ Model sử dụng SELECT_TF_OPS nhưng FlexDelegate không được apply');
-            print('   ⚠️ Kiểm tra:');
-            print('      1. libtensorflowlite_flex_jni.so có trong jniLibs/');
-            print('      2. Version tensorflow-lite-select-tf-ops: 2.15.0');
-            print('      3. Đã rebuild app sau khi thay đổi');
-            rethrow;
-          }
-        }
-        
-        // Kiểm tra input/output shapes
-        final inputTensors = _interpreter!.getInputTensors();
-        final outputTensors = _interpreter!.getOutputTensors();
-        print('✅ Đã khởi tạo interpreter thành công!');
-        print('   Input tensors: ${inputTensors.length}');
-        print('   Output tensors: ${outputTensors.length}');
-        if (inputTensors.isNotEmpty) {
-          print('   Input shape: ${inputTensors[0].shape}');
-        }
-        if (outputTensors.isNotEmpty) {
-          print('   Output shape: ${outputTensors[0].shape}');
-        }
-      } catch (e, stackTrace) {
-        print('❌ Không thể khởi tạo TensorFlow Lite interpreter: $e');
-        print('❌ Stack trace: $stackTrace');
-        print('❌ Tính năng ML sẽ không hoạt động.');
+        print('   3. Đã rebuild app sau khi thay đổi');
         _isInitialized = true;
         return;
       }
@@ -149,10 +70,10 @@ class MLService {
   }
 
   /// Dự đoán từ sequence keypoints
-  /// Input: List[List&lt;double&gt;&gt; shape (sequenceLength, numKeypoints)
+  /// Input: List[List<double>> shape (sequenceLength, numKeypoints)
   /// Output: Map chứa predicted action, confidence, và probabilities
   Future<Map<String, dynamic>> predict(List<List<double>> sequence) async {
-    if (!_isInitialized || _interpreter == null) {
+    if (!_isInitialized || !_modelLoaded) {
       // Trả về kết quả mock nếu ML service chưa sẵn sàng (không log mỗi lần)
       return {
         'action_key': 'unknown',
@@ -164,39 +85,19 @@ class MLService {
       };
     }
 
-    if (sequence.length != _actionsData!['sequence_length']) {
+    if (_actionsData == null || sequence.length != _actionsData!['sequence_length']) {
       throw Exception(
-        'Sequence length không đúng. Cần ${_actionsData!['sequence_length']}, nhận được ${sequence.length}'
+        'Sequence length không đúng. Cần ${_actionsData?['sequence_length']}, nhận được ${sequence.length}'
       );
     }
 
     try {
-      // Convert sequence thành tensor input
-      // Shape: (1, sequenceLength, numKeypoints)
-      final numKeypoints = sequence[0].length;
-      final inputShape = [1, sequence.length, numKeypoints];
+      // Convert sequence thành tensor input shape (1, sequenceLength, numKeypoints)
+      final input = [sequence];
       
-      // Tạo input tensor
-      final input = List.generate(
-        inputShape[0],
-        (_) => List.generate(
-          inputShape[1],
-          (i) => List.generate(
-            inputShape[2],
-            (j) => sequence[i][j].toDouble(),
-          ),
-        ),
-      );
-
-      // Tạo output tensor
-      final numClasses = (_actionsData!['actions'] as List).length;
-      final output = List.generate(1, (_) => List.filled(numClasses, 0.0));
-
-      // Chạy inference
-      _interpreter!.run(input, output);
-
-      // Lấy probabilities
-      final probabilities = output[0].map<double>((e) => e.toDouble()).toList();
+      // Gọi native inference
+      final List<dynamic> rawOutput = await _channel.invokeMethod('runInference', {'input': input});
+      final probabilities = rawOutput.map<double>((e) => (e as num).toDouble()).toList();
       
       // Tìm class có probability cao nhất
       double maxProb = 0.0;
@@ -264,13 +165,16 @@ class MLService {
   }
 
   /// Kiểm tra service đã sẵn sàng chưa
-  bool get isReady => _isInitialized && _interpreter != null;
+  bool get isReady => _isInitialized && _modelLoaded;
 
   /// Giải phóng tài nguyên
-  void dispose() {
-    _interpreter?.close();
-    _interpreter = null;
+  Future<void> dispose() async {
+    try {
+      await _channel.invokeMethod('disposeModel');
+    } catch (e) {
+      print('⚠️ Lỗi dispose model: $e');
+    }
+    _modelLoaded = false;
     _isInitialized = false;
   }
 }
-

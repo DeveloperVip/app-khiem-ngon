@@ -22,3 +22,17 @@ subprojects {
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
+
+configurations.all {
+    exclude(group = "com.google.ai.edge.litert")
+}
+
+subprojects {
+    configurations {
+        all {
+            exclude(group = "com.google.ai.edge.litert")
+            exclude(group = "com.google.ai.edge.litert", module = "litert")
+            exclude(group = "com.google.ai.edge.litert", module = "litert-api")
+        }
+    }
+}
