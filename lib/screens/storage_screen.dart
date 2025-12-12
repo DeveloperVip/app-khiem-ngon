@@ -4,7 +4,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../providers/auth_provider.dart';
 import '../services/supabase_service.dart';
 import '../models/user_upload_model.dart';
+import '../services/dictionary_storage_service.dart';
+import '../models/translation_result.dart';
 import 'upload_detail_screen.dart';
+import 'dart:io';
 
 class StorageScreen extends StatelessWidget {
   const StorageScreen({super.key});
@@ -30,90 +33,118 @@ class StorageScreen extends StatelessWidget {
 
 class _StorageContent extends StatelessWidget {
   final String userId;
-  final SupabaseService _supabaseService = SupabaseService();
-
-  _StorageContent({required this.userId});
+  
+  const _StorageContent({required this.userId});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Lưu trữ'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Lưu trữ'),
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
+          bottom: const TabBar(
+            labelColor: Colors.blue,
+            unselectedLabelColor: Colors.grey,
+            indicatorColor: Colors.blue,
+            tabs: [
+              Tab(text: 'Tải lên từ thiết bị'),
+              Tab(text: 'Từ điển dịch'),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: [
+             _UploadsTab(userId: userId),
+             const _DictionaryHistoryTab(),
+          ],
+        ),
       ),
-      body: StreamBuilder<List<UserUploadModel>>(
-        stream: _supabaseService.getUserUploads(userId),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+    );
+  }
+}
 
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.error_outline, size: 64, color: Colors.red),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Lỗi: ${snapshot.error}',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.red),
-                  ),
-                  const SizedBox(height: 24),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      // Refresh
-                    },
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Thử lại'),
-                  ),
-                ],
-              ),
-            );
-          }
+class _UploadsTab extends StatelessWidget {
+  final String userId;
+  final SupabaseService _supabaseService = SupabaseService();
 
-          final uploads = snapshot.data ?? [];
+  _UploadsTab({required this.userId});
 
-          if (uploads.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.cloud_upload_outlined, size: 80, color: Colors.grey[400]),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Chưa có file nào được lưu',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Upload ảnh hoặc video để dịch và lưu trữ',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[500],
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            );
-          }
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<UserUploadModel>>(
+      stream: _supabaseService.getUserUploads(userId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: uploads.length,
-            itemBuilder: (context, index) {
-              final upload = uploads[index];
-              return _buildUploadCard(context, upload);
-            },
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                const SizedBox(height: 16),
+                Text(
+                  'Lỗi: ${snapshot.error}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.red),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    // Refresh trigger (handled by StreamBuilder itself mostly, but could set state)
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Thử lại'),
+                ),
+              ],
+            ),
           );
-        },
-      ),
+        }
+
+        final uploads = snapshot.data ?? [];
+
+        if (uploads.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.cloud_upload_outlined, size: 80, color: Colors.grey[400]),
+                const SizedBox(height: 16),
+                Text(
+                  'Chưa có file nào được lưu',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Upload ảnh hoặc video để dịch và lưu trữ',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[500],
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: uploads.length,
+          itemBuilder: (context, index) {
+            final upload = uploads[index];
+            return _buildUploadCard(context, upload);
+          },
+        );
+      },
     );
   }
 
@@ -265,7 +296,7 @@ class _StorageContent extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey[600],
-                            ),
+                              ),
                           ),
                         ],
                       ),
@@ -288,7 +319,7 @@ class _StorageContent extends StatelessWidget {
                       const Spacer(),
                       Icon(Icons.delete_outline, size: 18, color: Colors.red[300]),
                       TextButton(
-                        onPressed: () => _showDeleteDialog(context, upload),
+                        onPressed: () => _UploadsTab(userId: userId)._showDeleteDialog(context, upload),
                         child: Text(
                           'Xóa',
                           style: TextStyle(color: Colors.red[700]),
@@ -365,6 +396,195 @@ class _StorageContent extends StatelessWidget {
           );
         }
       }
+    }
+  }
+}
+
+class _DictionaryHistoryTab extends StatefulWidget {
+  const _DictionaryHistoryTab();
+
+  @override
+  State<_DictionaryHistoryTab> createState() => _DictionaryHistoryTabState();
+}
+
+class _DictionaryHistoryTabState extends State<_DictionaryHistoryTab> {
+  final DictionaryStorageService _storageService = DictionaryStorageService();
+  List<TranslationResult> _history = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    setState(() {
+      _isLoading = true;
+    });
+    final history = await _storageService.getSavedTranslations();
+    if (mounted) {
+      setState(() {
+        _history = history;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _deleteItem(int index) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Xác nhận xóa'),
+        content: const Text('Bạn có chắc muốn xóa mục này?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Hủy'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Xóa'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed == true) {
+      await _storageService.deleteTranslation(index);
+      _loadHistory();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_history.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.history, size: 80, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            const Text(
+              'Chưa có lịch sử dịch',
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.grey,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Các bản dịch được lưu từ camera sẽ xuất hiện ở đây',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[500],
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadHistory,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _history.length,
+        itemBuilder: (context, index) {
+          final item = _history[index];
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            elevation: 2,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.all(16),
+              leading: item.mediaPath != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(
+                        File(item.mediaPath!),
+                        width: 60,
+                        height: 60,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          width: 60,
+                          height: 60,
+                          color: Colors.grey[300],
+                          child: const Icon(Icons.broken_image, size: 24),
+                        ),
+                      ),
+                    )
+                  : Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.translate,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+              title: Text(
+                item.text,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 4),
+                  Text(
+                    'Độ tin cậy: ${(item.confidence * 100).toStringAsFixed(0)}%',
+                    style: TextStyle(
+                      color: item.confidence > 0.7 ? Colors.green : Colors.orange,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _formatDate(item.timestamp),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+              trailing: IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.red),
+                onPressed: () => _deleteItem(index),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+  
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inDays == 0) {
+      if (difference.inHours == 0) {
+        return '${difference.inMinutes} phút trước';
+      }
+      return '${difference.inHours} giờ trước';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays} ngày trước';
+    } else {
+      return '${date.day}/${date.month}/${date.year}';
     }
   }
 }

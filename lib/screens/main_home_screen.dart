@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'lessons_screen.dart';
 import 'profile_screen.dart';
 import 'camera_screen.dart';
+import 'storage_screen.dart';
 
 class MainHomeScreen extends StatefulWidget {
   const MainHomeScreen({super.key});
@@ -17,6 +18,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
   Widget? _lessonsScreen;
   Widget? _cameraScreen;
   Widget? _profileScreen;
+  Widget? _storageScreen;
 
   Widget _buildCurrentScreen() {
     Widget screen;
@@ -24,19 +26,23 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
       case 0:
         _lessonsScreen ??= const LessonsScreen();
         screen = _lessonsScreen!;
-        print('🏠 MainHomeScreen: Returning LessonsScreen');
+        screen = _lessonsScreen!;
       case 1:
+        _storageScreen ??= const StorageScreen();
+        screen = _storageScreen!;
+        screen = _storageScreen!;
+      case 2:
         _cameraScreen ??= const CameraScreen();
         screen = _cameraScreen!;
-        print('🏠 MainHomeScreen: Returning CameraScreen');
-      case 2:
+        screen = _cameraScreen!;
+      case 3:
         _profileScreen ??= const ProfileScreen();
         screen = _profileScreen!;
-        print('🏠 MainHomeScreen: Returning ProfileScreen');
+        screen = _profileScreen!;
       default:
         _lessonsScreen ??= const LessonsScreen();
         screen = _lessonsScreen!;
-        print('🏠 MainHomeScreen: Returning default LessonsScreen');
+        screen = _lessonsScreen!;
     }
     return Container(
       color: Colors.white,
@@ -46,9 +52,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    print('🏠 MainHomeScreen: Building with index=$_currentIndex');
     final currentScreen = _buildCurrentScreen();
-    print('🏠 MainHomeScreen: Current screen type: ${currentScreen.runtimeType}');
     
     return Scaffold(
       backgroundColor: Colors.white, // Đảm bảo có background color
@@ -70,6 +74,11 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
             icon: Icon(Icons.school_outlined),
             selectedIcon: Icon(Icons.school),
             label: 'Bài học',
+          ),
+          NavigationDestination(
+             icon: Icon(Icons.folder_open_outlined),
+            selectedIcon: Icon(Icons.folder_open),
+            label: 'Lưu trữ',
           ),
           NavigationDestination(
             icon: Icon(Icons.camera_alt_outlined),

@@ -12,29 +12,28 @@ android {
         applicationId = "com.example.flutter_application_initial"
         minSdk = 26
         targetSdk = flutter.targetSdkVersion
+        versionCode = 7
+        versionName = "1.6"
 
-        versionCode = 1
-        versionName = "1.0"
-
-        // Hỗ trợ cả ARM (điện thoại thật) và x86_64 (emulator)
-        // TFLite Flex sẽ chỉ hoạt động trên ARM
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
         }
     }
 
-    packaging {
-        jniLibs.useLegacyPackaging = true
-        
-        // Xử lý trùng lặp native libraries
-        jniLibs.pickFirsts += listOf(
-            "**/libtensorflowlite_jni.so",
-            "**/libtensorflowlite_c.so",
-            "**/libtensorflowlite_flex.so",
-            "**/libtensorflowlite_flex_jni.so",
-            "**/libtensorflowlite_flex_c.so",
-            "**/libc++_shared.so"
-        )
+    // Định nghĩa signing config debug
+    signingConfigs {
+        getByName("debug") {
+            // Flutter tự động cung cấp keystore debug
+        }
+    }
+
+    buildTypes {
+        release {
+            // QUAN TRỌNG: Dùng debug key ký cho release để cài được ngay
+            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
     }
 
     compileOptions {
@@ -45,9 +44,16 @@ android {
     kotlinOptions {
         jvmTarget = "11"
     }
+
+    packaging {
+        jniLibs.useLegacyPackaging = true
+        jniLibs.pickFirsts += listOf(
+            "**/libtensorflowlite_jni.so",
+            "**/libc++_shared.so"
+        )
+    }
 }
 
-// Loại bỏ LiteRT để tránh xung đột với TensorFlow Lite
 configurations.all {
     exclude(group = "com.google.ai.edge.litert")
     exclude(group = "com.google.ai.edge.litert", module = "litert")

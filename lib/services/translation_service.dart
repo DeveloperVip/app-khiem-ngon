@@ -24,11 +24,11 @@ class TranslationService {
       
       // Chỉ log nếu ML service thực sự ready
       if (_mlService.isReady) {
-        print('✅ TranslationService đã được khởi tạo thành công');
+      // print('✅ TranslationService đã được khởi tạo thành công');
       }
       // Nếu không ready, đã log trong MLService rồi, không cần log lại
     } catch (e) {
-      print('❌ Lỗi khởi tạo TranslationService: $e');
+      // print('❌ Lỗi khởi tạo TranslationService: $e');
       // Không rethrow để app vẫn chạy được
       _isInitialized = true; // Đánh dấu đã thử để không thử lại
     } finally {
@@ -102,7 +102,7 @@ class TranslationService {
         mediaType: MediaType.video,
       );
     } catch (e) {
-      print('❌ Lỗi dịch video: $e');
+      // print('❌ Lỗi dịch video: $e');
       return TranslationResult(
         text: 'undefined',
         confidence: 0.0,
@@ -144,7 +144,7 @@ class TranslationService {
       
       // Kiểm tra số lượng keypoints (phải = 1662)
       if (keypoints.length != 1662) {
-        print('⚠️ Keypoints size không đúng: ${keypoints.length} != 1662. Bỏ qua frame này.');
+        // print('⚠️ Keypoints size không đúng: ${keypoints.length} != 1662. Bỏ qua frame này.');
         return null;
       }
       
@@ -180,7 +180,7 @@ class TranslationService {
         mediaType: MediaType.camera,
       );
     } catch (e) {
-      print('❌ Lỗi xử lý frame camera: $e');
+      // print('❌ Lỗi xử lý frame camera: $e');
       return null;
     }
   }
@@ -228,7 +228,7 @@ class TranslationService {
         
         // Kiểm tra số lượng keypoints
         if (keypoints.length != 1662) {
-          print('⚠️ Keypoints size không đúng: ${keypoints.length} != 1662');
+          // print('⚠️ Keypoints size không đúng: ${keypoints.length} != 1662');
           return TranslationResult(
             text: 'Lỗi extract keypoints từ frame',
             confidence: 0.0,
@@ -281,7 +281,7 @@ class TranslationService {
         mediaType: MediaType.camera,
       );
     } catch (e) {
-      print('❌ Lỗi dịch dictionary sequence: $e');
+      // print('❌ Lỗi dịch dictionary sequence: $e');
       return TranslationResult(
         text: 'Lỗi: $e',
         confidence: 0.0,

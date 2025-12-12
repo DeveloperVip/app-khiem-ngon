@@ -4,8 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import '../models/translation_result.dart'; // Import TranslationResult
 import '../providers/translation_provider.dart';
 import '../services/frame_processor.dart';
+import '../services/dictionary_storage_service.dart';
+
+import 'package:image/image.dart' as img; // Import image package
+import 'package:path_provider/path_provider.dart'; // Import path provider
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -32,6 +37,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
   bool _hasInitialized = false; // Flag để chỉ khởi tạo một lần
   bool _isMLReady = false; // Trạng thái ML service
   String? _mlStatusMessage; // Thông báo trạng thái ML
+  bool _isPaused = false; // Trạng thái dừng/tiếp tục realtime
   
   // Translation mode
   TranslationMode _translationMode = TranslationMode.realtime;
@@ -61,7 +67,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
         _controller!.stopImageStream();
       }
     } catch (e) {
-      print('⚠️ Lỗi khi dừng stream trong dispose: $e');
+      // print('⚠️ Lỗi khi dừng stream trong dispose: $e');
     }
     
     _frameProcessor.reset();
@@ -84,7 +90,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
           _controller!.stopImageStream();
         }
       } catch (e) {
-        print('⚠️ Lỗi khi dừng stream trong lifecycle: $e');
+        // print('⚠️ Lỗi khi dừng stream trong lifecycle: $e');
       }
     } else if (state == AppLifecycleState.resumed) {
       // Chỉ resume nếu screen đang được hiển thị
@@ -123,7 +129,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
         });
       }
     } catch (e) {
-      print('Error initializing ML service: $e');
+      // print('Error initializing ML service: $e');
       if (mounted) {
         setState(() {
           _isMLReady = false;
@@ -200,7 +206,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
         }
       }
     } catch (e) {
-      print('Error initializing camera: $e');
+      // print('Error initializing camera: $e');
       if (mounted) {
         setState(() {
           _isInitialized = false;
@@ -293,7 +299,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
         });
       }
     } catch (e) {
-      print('Error processing frame: $e');
+      // print('Error processing frame: $e');
       // Không hiển thị lỗi cho mỗi frame để tránh spam UI
     } finally {
       if (mounted) {
@@ -320,7 +326,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
         await _controller!.stopImageStream();
       }
     } catch (e) {
-      print('⚠️ Lỗi khi dừng stream khi đổi camera: $e');
+      // print('⚠️ Lỗi khi dừng stream khi đổi camera: $e');
     }
     
     await _controller?.dispose();
@@ -344,7 +350,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
         _startImageStream();
       }
     } catch (e) {
-      print('Error switching camera: $e');
+      // print('Error switching camera: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Lỗi đổi camera: $e')),
@@ -372,7 +378,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
         await _controller!.stopImageStream();
       }
     } catch (e) {
-      print('⚠️ Lỗi khi dừng stream cho dictionary mode: $e');
+      // print('⚠️ Lỗi khi dừng stream cho dictionary mode: $e');
       // Bỏ qua lỗi và tiếp tục
     }
     
@@ -450,14 +456,26 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
         
         if (provider.currentResult != null) {
           setState(() {
-            _currentTranslation = provider.currentResult!.text;
             _currentConfidence = provider.currentResult!.confidence;
           });
           
+          // Capture image from last frame for storage
+          String? imagePath;
+          if (_dictionaryFrames.isNotEmpty) {
+             try {
+                // Lấy frame giữa hoặc cuối
+                final frame = _dictionaryFrames[_dictionaryFrames.length ~/ 2];
+                imagePath = await _saveCameraImageToFile(frame);
+             } catch (e) {
+                print('Error saving frame: $e');
+             }
+          }
+
           if (mounted) {
             _showResultDialog(
               provider.currentResult!,
               isVideo: false,
+              imagePath: imagePath,
             );
           }
         }
@@ -533,6 +551,28 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     }
   }
 
+  void _togglePause() {
+    if (_translationMode != TranslationMode.realtime) return;
+
+    setState(() {
+      _isPaused = !_isPaused;
+    });
+
+    if (_isPaused) {
+      // Dừng stream
+      _isStreamActive = false;
+      try {
+        if (_controller != null && _controller!.value.isStreamingImages) {
+          _controller!.stopImageStream();
+        }
+      } catch (e) {
+        print('Error pausing stream: $e');
+      }
+    } else {
+      // Tiếp tục stream
+      _startImageStream();
+    }
+  }
 
   void _showResultDialog(dynamic result, {String? imagePath, String? videoPath, bool isVideo = false}) {
     showDialog(
@@ -541,220 +581,11 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
       builder: (context) => Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.all(16),
-        child: Container(
-          constraints: const BoxConstraints(maxHeight: 600),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.translate, color: Colors.white),
-                    const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text(
-                        'Kết quả dịch',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-              ),
-              
-              // Preview media
-              if (imagePath != null || videoPath != null)
-                Flexible(
-                  child: Container(
-                    height: 200,
-                    width: double.infinity,
-                    margin: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: isVideo && videoPath != null
-                          ? Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                // Video thumbnail placeholder
-                                Container(
-                                  color: Colors.grey[900],
-                                  child: const Center(
-                                    child: Icon(
-                                      Icons.videocam,
-                                      color: Colors.white70,
-                                      size: 64,
-                                    ),
-                                  ),
-                                ),
-                                // Play icon overlay
-                                Container(
-                                  color: Colors.black.withValues(alpha: 0.3),
-                                  child: const Center(
-                                    child: Icon(
-                                      Icons.play_circle_filled,
-                                      color: Colors.white,
-                                      size: 64,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            )
-                          : imagePath != null
-                              ? Image.file(
-                                  File(imagePath),
-                                  fit: BoxFit.contain,
-                                )
-                              : const Center(
-                                  child: Icon(Icons.image, color: Colors.white70, size: 48),
-                                ),
-                    ),
-                  ),
-                ),
-              
-              // Translation result
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  children: [
-                    // Confidence badge
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: result.confidence > 0.7
-                            ? Colors.green.withValues(alpha: 0.1)
-                            : Colors.orange.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: result.confidence > 0.7 ? Colors.green : Colors.orange,
-                          width: 1,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            result.confidence > 0.7 ? Icons.check_circle : Icons.warning,
-                            size: 16,
-                            color: result.confidence > 0.7 ? Colors.green : Colors.orange,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Độ tin cậy: ${(result.confidence * 100).toStringAsFixed(1)}%',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: result.confidence > 0.7 ? Colors.green : Colors.orange,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // Translated text
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[100],
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey[300]!),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.translate,
-                                color: Theme.of(context).colorScheme.primary,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Kết quả dịch:',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            result.text,
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              
-              const SizedBox(height: 16),
-              
-              // Actions
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close),
-                        label: const Text('Đóng'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          // Có thể thêm chức năng lưu vào đây
-                        },
-                        icon: const Icon(Icons.save),
-                        label: const Text('Lưu'),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+        child: _ResultDialogContent(
+          result: result,
+          imagePath: imagePath,
+          videoPath: videoPath,
+          isVideo: isVideo,
         ),
       ),
     );
@@ -938,77 +769,99 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                   
                   // Kết quả dịch realtime
                   if (_currentTranslation != null && _isMLReady)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.2),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+
+                // Nút close cho kết quả realtime
+                      Stack(
                         children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.translate,
-                                color: Theme.of(context).colorScheme.primary,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Ký hiệu được nhận diện:',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                  color: Colors.grey,
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.2),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
                                 ),
-                              ),
-                              const Spacer(),
-                              if (_currentConfidence != null)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: _currentConfidence! > 0.7
-                                        ? Colors.green.withValues(alpha: 0.2)
-                                        : Colors.orange.withValues(alpha: 0.2),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.translate,
+                                      color: Theme.of(context).colorScheme.primary,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'Ký hiệu được nhận diện:',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    if (_currentConfidence != null)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: _currentConfidence! > 0.7
+                                              ? Colors.green.withValues(alpha: 0.2)
+                                              : Colors.orange.withValues(alpha: 0.2),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Text(
+                                          '${(_currentConfidence! * 100).toStringAsFixed(0)}%',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: _currentConfidence! > 0.7
+                                                ? Colors.green
+                                                : Colors.orange,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 30), // Chừa chỗ cho nút close
                                   child: Text(
-                                    '${(_currentConfidence! * 100).toStringAsFixed(0)}%',
-                                    style: TextStyle(
-                                      fontSize: 12,
+                                    _currentTranslation!,
+                                    style: const TextStyle(
+                                      fontSize: 18,
                                       fontWeight: FontWeight.bold,
-                                      color: _currentConfidence! > 0.7
-                                          ? Colors.green
-                                          : Colors.orange,
+                                      color: Colors.black87,
                                     ),
                                   ),
                                 ),
-                            ],
+                              ],
+                            ),
                           ),
-                          const SizedBox(height: 12),
-                          Text(
-                            _currentTranslation!,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: IconButton(
+                              icon: const Icon(Icons.close, color: Colors.grey, size: 20),
+                              onPressed: () {
+                                setState(() {
+                                  _currentTranslation = null;
+                                  _currentConfidence = null;
+                                });
+                              },
                             ),
                           ),
                         ],
-                      ),
-                    )
+                      )
                   else if (_isMLReady && _translationMode == TranslationMode.realtime)
                     Container(
                       width: double.infinity,
@@ -1109,18 +962,28 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                               : const Icon(Icons.fiber_manual_record, color: Colors.white, size: 28),
                         )
                       else
-                        // Realtime mode indicator
-                        Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            color: Colors.green.withValues(alpha: 0.8),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.play_circle_filled,
-                            color: Colors.white,
-                            size: 32,
+                        // Realtime Play/Pause Button
+                        GestureDetector(
+                          onTap: _isInitialized ? _togglePause : null,
+                          child: Container(
+                            width: 64,
+                            height: 64,
+                            decoration: BoxDecoration(
+                              color: _isPaused ? Colors.green : Colors.red,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: (_isPaused ? Colors.green : Colors.red).withValues(alpha: 0.4),
+                                  blurRadius: 10,
+                                  spreadRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                              _isPaused ? Icons.play_arrow : Icons.pause,
+                              color: Colors.white,
+                              size: 36,
+                            ),
                           ),
                         ),
                     ],
@@ -1226,5 +1089,358 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
         ],
       ),
     );
+  }
+}
+
+class _ResultDialogContent extends StatefulWidget {
+  final dynamic result;
+  final String? imagePath;
+  final String? videoPath;
+  final bool isVideo;
+
+  const _ResultDialogContent({
+    required this.result,
+    this.imagePath,
+    this.videoPath,
+    this.isVideo = false,
+  });
+
+  @override
+  State<_ResultDialogContent> createState() => _ResultDialogContentState();
+}
+
+class _ResultDialogContentState extends State<_ResultDialogContent> {
+  bool _isSaving = false;
+  bool _isSaved = false;
+
+  Future<void> _saveResult() async {
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      final storageService = DictionaryStorageService();
+      
+      // Check limit
+      final history = await storageService.getSavedTranslations();
+      if (history.length >= 20) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Lưu trữ đã đầy (20/20). Vui lòng xóa bớt để lưu thêm.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        setState(() {
+          _isSaving = false;
+        });
+        return;
+      }
+
+      // Prepare result with video/image path
+      // Nếu có imagePath tạm (từ cache), copy nó vào folder document để lưu lâu dài
+      String? permanentPath;
+      if (widget.imagePath != null) {
+         try {
+           final directory = await getApplicationDocumentsDirectory();
+           final fileName = 'dict_${DateTime.now().millisecondsSinceEpoch}.jpg';
+           final newPath = '${directory.path}/$fileName';
+           await File(widget.imagePath!).copy(newPath);
+           permanentPath = newPath;
+         } catch (e) {
+           print('Error copying image: $e');
+         }
+      }
+
+      // Tạo object mới copy từ result nhưng thêm mediaPath
+      // Dynamic result không có copyWith, nên ta tạo TranslationResult mới
+      // Giả sử widget.result là TranslationResult model
+      final newResult = TranslationResult(
+        text: widget.result.text,
+        confidence: widget.result.confidence,
+        timestamp: DateTime.now(),
+        mediaPath: permanentPath,
+        mediaType: widget.isVideo ? MediaType.video : MediaType.image, // Lưu ý: MediaType cần import
+      );
+
+      await storageService.saveTranslation(newResult);
+      
+      setState(() {
+        _isSaved = true;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đã lưu vào từ điển')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi lưu: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 600),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.translate, color: Colors.white),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Kết quả dịch',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          ),
+          
+          // Preview media
+          if (widget.imagePath != null || widget.videoPath != null)
+            Flexible(
+              child: Container(
+                height: 200,
+                width: double.infinity,
+                margin: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: widget.isVideo && widget.videoPath != null
+                      ? Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Container(
+                              color: Colors.grey[900],
+                              child: const Center(
+                                child: Icon(
+                                  Icons.videocam,
+                                  color: Colors.white70,
+                                  size: 64,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              child: const Center(
+                                child: Icon(
+                                  Icons.play_circle_filled,
+                                  color: Colors.white,
+                                  size: 64,
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : widget.imagePath != null
+                          ? Image.file(
+                              File(widget.imagePath!),
+                              fit: BoxFit.contain,
+                            )
+                          : const Center(
+                              child: Icon(Icons.image, color: Colors.white70, size: 48),
+                            ),
+                ),
+              ),
+            ),
+          
+          // Translation result
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: widget.result.confidence > 0.7
+                        ? Colors.green.withValues(alpha: 0.1)
+                        : Colors.orange.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: widget.result.confidence > 0.7 ? Colors.green : Colors.orange,
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        widget.result.confidence > 0.7 ? Icons.check_circle : Icons.warning,
+                        size: 16,
+                        color: widget.result.confidence > 0.7 ? Colors.green : Colors.orange,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Độ tin cậy: ${(widget.result.confidence * 100).toStringAsFixed(1)}%',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: widget.result.confidence > 0.7 ? Colors.green : Colors.orange,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
+                
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.translate,
+                            color: Theme.of(context).colorScheme.primary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Kết quả dịch:',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        widget.result.text,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Actions
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    label: const Text('Đóng'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _isSaved ? null : _saveResult,
+                    icon: _isSaving 
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) 
+                        : Icon(_isSaved ? Icons.check : Icons.save),
+                    label: Text(_isSaved ? 'Đã lưu' : 'Lưu'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+// Helper methods for Image Conversion
+extension ImageConversion on _CameraScreenState {
+  Future<String?> _saveCameraImageToFile(CameraImage image) async {
+    try {
+      // 1. Convert YUV420 to RGB 
+      // Basic YUV conversion (Greyscale fallback if color is hard without FFI)
+      
+      final int width = image.width;
+      final int height = image.height;
+      
+      var img_lib_image = img.Image(width: width, height: height); // Create empty image
+
+      // Basic YUV conversion (use Y plane)
+      final int uvRowStride = image.planes[1].bytesPerRow;
+      final int uvPixelStride = image.planes[1].bytesPerPixel ?? 1;
+      
+      // Creating a greyscale image from Y plane is fastest
+      for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+           final int index = y * width + x;
+           final int yp = image.planes[0].bytes[index];
+           img_lib_image.setPixelRgb(x, y, yp, yp, yp);
+        }
+      }
+
+      // Rotate if needed (Mobile cameras are usually 90 deg)
+      // Android rear camera usually requires 90 rotation.
+      img_lib_image = img.copyRotate(img_lib_image, angle: 90);
+
+      // Encode to JPG
+      final jpg = img.encodeJpg(img_lib_image);
+      
+      final directory = await getTemporaryDirectory();
+      final path = '${directory.path}/temp_frame_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final file = File(path);
+      await file.writeAsBytes(jpg);
+      
+      return path;
+    } catch (e) {
+      print('Error converting image: $e');
+      return null;
+    }
   }
 }

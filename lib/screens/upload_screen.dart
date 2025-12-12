@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import '../providers/translation_provider.dart';
 import '../services/media_service.dart';
+import '../providers/auth_provider.dart';
+import '../services/supabase_service.dart';
 
 class UploadScreen extends StatefulWidget {
   const UploadScreen({super.key});
@@ -58,6 +60,24 @@ class _UploadScreenState extends State<UploadScreen> {
 
   Future<void> _translate() async {
     if (_selectedFile == null) return;
+    
+    // Check limit
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final supabaseService = SupabaseService();
+    if (authProvider.user != null) {
+      final uploads = await supabaseService.getUserUploads(authProvider.user!.uid).first;
+      if (uploads.length >= 20) {
+        if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Lưu trữ online đã đầy (20/20). Vui lòng xóa bớt file trong kho lưu trữ.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+    }
 
     final provider = Provider.of<TranslationProvider>(context, listen: false);
     

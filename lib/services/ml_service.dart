@@ -94,11 +94,11 @@ class MLService {
     try {
       // Convert sequence thành tensor input shape (1, sequenceLength, numKeypoints)
       final input = [sequence];
-      
+      print('Input shape: ${input} x ${input[0].length}');
       // Gọi native inference
       final List<dynamic> rawOutput = await _channel.invokeMethod('runInference', {'input': input});
       final probabilities = rawOutput.map<double>((e) => (e as num).toDouble()).toList();
-      
+      print('Probabilities: $probabilities');
       // Tìm class có probability cao nhất
       double maxProb = 0.0;
       int maxIdx = 0;
