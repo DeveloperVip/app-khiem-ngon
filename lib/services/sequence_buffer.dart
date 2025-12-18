@@ -6,7 +6,7 @@ class SequenceBuffer {
   final int sequenceLength;
   final Queue<List<double>> _buffer = Queue<List<double>>();
 
-  SequenceBuffer({this.sequenceLength = 30});
+  SequenceBuffer({this.sequenceLength = 40});
 
   /// Thêm keypoints mới vào buffer
   /// Tự động loại bỏ frame cũ nếu đã đủ sequenceLength

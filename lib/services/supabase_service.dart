@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:path/path.dart' as p;
 import '../models/lesson_model.dart';
 import '../models/user_upload_model.dart';
 
@@ -180,22 +181,34 @@ class SupabaseService {
     required String mediaType, // 'image' or 'video'
   }) async {
     try {
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${file.path.split('/').last}';
+      // Dùng p.basename để lấy tên file chính xác trên mọi OS (Fix lỗi đường dẫn Windows)
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${p.basename(file.path)}';
       final fileBytes = await file.readAsBytes();
       final filePath = '$userId/$mediaType/$fileName';
 
+      // Upload file với options (quan trọng để tránh lỗi cache và server xử lý đúng)
       await _supabase.storage
           .from('user_media')
-          .uploadBinary(filePath, fileBytes);
+          .uploadBinary(
+            filePath, 
+            fileBytes,
+            fileOptions: const FileOptions(
+              cacheControl: '3600',
+              upsert: true,
+            ),
+          );
 
-      // Lấy signed URL hoặc public URL
-      final response = _supabase.storage
+      // Lấy Signed URL (có token) thay vì Public URL để fix lỗi 400 Access Denied
+      // Thời hạn: 10 năm (315360000 giây) - coi như vĩnh viễn cho demo
+      final response = await _supabase.storage
           .from('user_media')
-          .getPublicUrl(filePath);
+          .createSignedUrl(filePath, 315360000);
 
+      print('✅ Signed URL tạo thành công: $response');
       return response;
     } catch (e) {
-      throw Exception('Lỗi upload media: ${e.toString()}');
+      print('❌ Lỗi upload media: $e');
+      throw Exception('Lỗi upload media: $e');
     }
   }
 

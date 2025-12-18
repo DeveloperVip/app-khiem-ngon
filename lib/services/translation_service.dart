@@ -10,6 +10,9 @@ class TranslationService {
   final KeypointsExtractor _keypointsExtractor = KeypointsExtractor();
   final SequenceBuffer _sequenceBuffer = SequenceBuffer(sequenceLength: 30);
   
+  List<double>? _lastKeypoints; // Lưu keypoints mới nhất
+  List<double>? get lastKeypoints => _lastKeypoints;
+
   bool _isInitialized = false;
   bool _isInitializing = false; // Flag để tránh initialize đồng thời
 
@@ -65,29 +68,28 @@ class TranslationService {
         mediaType: MediaType.video,
       );
     }
-
+    
+    // Xử lý video thực sự
     try {
-      // TODO: Implement video frame extraction và xử lý
-      // Hiện tại: Extract một số frames từ video và dự đoán
-      // Tạm thời dùng frame đầu tiên hoặc frame giữa video
-      
-      // Lấy keypoints từ video (tạm thời dùng dummy, cần implement thực tế)
+      // 1. Extract frames & keypoints (Giả lập: Hiện tại Native chưa hỗ trợ extract từ file, nên sẽ trả về dummy)
+      // Trong tương lai cần implement Native Video Processor
       final keypoints = await _keypointsExtractor.extractKeypointsFromFile(videoPath);
       
-      // Tạo sequence từ keypoints (lặp lại để đủ 30 frames)
+      // 2. Tạo sequence (Lặp lại keypoints để đủ sequence length cho model)
+      // Nếu keypoints rỗng hoặc toàn 0, model sẽ trả về confidence thấp hoặc unknown
       final sequence = List.generate(30, (_) => keypoints);
       
-      // Dự đoán
+      // 3. Dự đoán
       final prediction = await _mlService.predict(sequence);
       
-      // Kiểm tra nếu không tìm thấy thao tác
       final isUnknown = prediction['is_unknown'] as bool? ?? false;
       final actionKey = prediction['action_key'] as String;
+      final confidence = prediction['confidence'] as double;
       
-      if (isUnknown || actionKey == 'unknown') {
+      if (isUnknown || actionKey == 'unknown' || confidence < 0.5) {
         return TranslationResult(
-          text: 'undefined',
-          confidence: prediction['confidence'] as double,
+          text: 'Không thể nhận diện hành động trong video này (Độ tin cậy thấp hoặc chưa hỗ trợ định dạng video).',
+          confidence: confidence,
           timestamp: DateTime.now(),
           mediaPath: videoPath,
           mediaType: MediaType.video,
@@ -96,15 +98,15 @@ class TranslationService {
       
       return TranslationResult(
         text: prediction['display_text'] as String,
-        confidence: prediction['confidence'] as double,
+        confidence: confidence,
         timestamp: DateTime.now(),
         mediaPath: videoPath,
         mediaType: MediaType.video,
       );
     } catch (e) {
-      // print('❌ Lỗi dịch video: $e');
+      print('❌ Lỗi dịch video: $e');
       return TranslationResult(
-        text: 'undefined',
+        text: 'Lỗi xử lý video: $e',
         confidence: 0.0,
         timestamp: DateTime.now(),
         mediaPath: videoPath,
@@ -118,12 +120,10 @@ class TranslationService {
     return translateImage(imageFile.path);
   }
 
-  /// Xử lý frame từ camera stream trực tiếp (REALTIME CONTINUOUS MODE)
-  /// Logic giống realtime_demo.py:
-  /// - Dùng deque để giữ 30 frames gần nhất
-  /// - Mỗi frame extract keypoints và thêm vào buffer
-  /// - Khi đủ 30 frames → predict
-  /// - Threshold 0.8 để hiển thị (như Python)
+  int _realtimeFrameCount = 0; // Đếm số frame để skip prediction
+
+  // ... (giữ nguyên các hàm khác)
+
   Future<TranslationResult?> translateCameraImageRealtime(
     CameraImage cameraImage, {
     int? maxWidth,
@@ -139,24 +139,31 @@ class TranslationService {
     }
 
     try {
-      // Extract keypoints từ camera frame (giống mediapipe_detection + extract_keypoints)
+      // 1. Extract keypoints: BẮT BUỘC mỗi frame để vẽ UI mượt mà
       final keypoints = await _keypointsExtractor.extractKeypoints(cameraImage);
       
-      // Kiểm tra số lượng keypoints (phải = 1662)
       if (keypoints.length != 1662) {
-        // print('⚠️ Keypoints size không đúng: ${keypoints.length} != 1662. Bỏ qua frame này.');
         return null;
       }
+
+      _lastKeypoints = keypoints; // Lưu lại để vẽ UI ngay lập tức
       
-      // Thêm vào sequence buffer (tự động loại bỏ frame cũ nếu đủ 30)
+      // 2. Thêm vào sequence buffer
       _sequenceBuffer.addKeypoints(keypoints);
       
-      // Chỉ predict khi đủ 30 frames (giống Python: if len(sequence) == SEQUENCE_LENGTH)
+      // 3. Tối ưu Prediction: Chỉ dự đoán mỗi 3 frames (Stride = 3)
+      // Với FPS đầu vào 15, Stride 3 -> Dự đoán 5 lần/giây (mỗi 200ms) -> Độ trễ thấp
+      _realtimeFrameCount++;
+      if (_realtimeFrameCount % 3 != 0) {
+         return null; // Skip prediction frame này
+      }
+
+      // Chỉ predict khi đủ 30 frames
       if (!_sequenceBuffer.isReady()) {
-        return null; // Chưa đủ frames
+        return null; 
       }
       
-      // Lấy sequence và dự đoán (giống Python: np.expand_dims(sequence, axis=0))
+      // 4. Predict (chỉ chạy mỗi 5 frames)
       final sequence = _sequenceBuffer.getSequence();
       final prediction = await _mlService.predict(sequence);
       
@@ -164,8 +171,8 @@ class TranslationService {
       final isUnknown = prediction['is_unknown'] as bool? ?? false;
       final actionKey = prediction['action_key'] as String;
       
-      // Threshold 0.8 như realtime_demo.py
-      const double realtimeThreshold = 0.8;
+      // Threshold 0.5 như yêu cầu
+      const double realtimeThreshold = 0.5;
       
       // Chỉ hiển thị nếu confidence >= 0.8 và không phải unknown
       if (isUnknown || actionKey == 'unknown' || confidence < realtimeThreshold) {
@@ -208,9 +215,9 @@ class TranslationService {
       );
     }
 
-    if (frames.length != 30) {
+    if (frames.length != 40) {
       return TranslationResult(
-        text: 'Cần đúng 30 frames để dịch. Nhận được: ${frames.length}',
+        text: 'Cần đúng 40 frames để dịch. Nhận được: ${frames.length}',
         confidence: 0.0,
         timestamp: DateTime.now(),
         mediaPath: '',
@@ -222,13 +229,30 @@ class TranslationService {
       // Reset buffer trước khi ghi sequence mới
       _sequenceBuffer.clear();
       
-      // Extract keypoints từ từng frame và thêm vào buffer
-      for (final frame in frames) {
+      // Resample frames: Chỉ lấy đúng 30 frames (sequenceLength) được chia đều từ input
+      // Ví dụ: Input 40 frames -> Lấy frame 0, 1, 2... (bỏ bớt 10 frame xen kẽ)
+      // Điều này giúp:
+      // 1. Giảm số lượng lần gọi extractKeypoints từ 40 xuống 30 -> Giảm 25% lag
+      // 2. Đảm bảo sequence gửi vào model luôn đúng length 30 -> Fix lỗi model reject
+      List<CameraImage> framesToProcess = [];
+      if (frames.length > 30) {
+        double step = frames.length / 30;
+        for (int i = 0; i < 30; i++) {
+          int index = (i * step).floor();
+          if (index < frames.length) {
+            framesToProcess.add(frames[index]);
+          }
+        }
+      } else {
+        framesToProcess = frames; // Nếu ít hơn hoặc bằng 30 (hiếm khi xảy ra nếu logic capture đúng)
+      }
+
+      // Extract keypoints từ từng frame đã lọc
+      for (final frame in framesToProcess) {
         final keypoints = await _keypointsExtractor.extractKeypoints(frame);
         
         // Kiểm tra số lượng keypoints
         if (keypoints.length != 1662) {
-          // print('⚠️ Keypoints size không đúng: ${keypoints.length} != 1662');
           return TranslationResult(
             text: 'Lỗi extract keypoints từ frame',
             confidence: 0.0,
@@ -238,6 +262,7 @@ class TranslationService {
           );
         }
         
+        _lastKeypoints = keypoints; // Cập nhật (frame cuối cùng sẽ được giữ)
         _sequenceBuffer.addKeypoints(keypoints);
       }
       
@@ -260,8 +285,8 @@ class TranslationService {
       final isUnknown = prediction['is_unknown'] as bool? ?? false;
       final actionKey = prediction['action_key'] as String;
       
-      // Threshold 0.6 như dictionary_mode.py
-      const double dictionaryThreshold = 0.6;
+      // Threshold 0.5 như yêu cầu
+      const double dictionaryThreshold = 0.5;
       
       if (isUnknown || actionKey == 'unknown' || confidence < dictionaryThreshold) {
         return TranslationResult(

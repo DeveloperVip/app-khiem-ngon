@@ -8,9 +8,11 @@ import '../models/translation_result.dart'; // Import TranslationResult
 import '../providers/translation_provider.dart';
 import '../services/frame_processor.dart';
 import '../services/dictionary_storage_service.dart';
+import 'dart:math' as math;
 
 import 'package:image/image.dart' as img; // Import image package
 import 'package:path_provider/path_provider.dart'; // Import path provider
+import '../widgets/keypoints_painter.dart'; // Import KeypointsPainter
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -21,7 +23,7 @@ class CameraScreen extends StatefulWidget {
 
 enum TranslationMode {
   realtime,    // Realtime continuous (như realtime_demo.py) - threshold 0.8
-  dictionary,  // Dictionary mode (như dictionary_mode.py) - nhấn nút ghi 30 frames - threshold 0.6
+  dictionary,  // Dictionary mode (như dictionary_mode.py) - nhấn nút ghi 40 frames - threshold 0.6
 }
 
 class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver {
@@ -42,7 +44,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
   // Translation mode
   TranslationMode _translationMode = TranslationMode.realtime;
   
-  // Dictionary mode: ghi 30 frames
+  // Dictionary mode: ghi 40 frames
   bool _isRecordingDictionary = false;
   List<CameraImage> _dictionaryFrames = [];
   int _dictionaryFrameCount = 0;
@@ -188,7 +190,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
 
       _controller = CameraController(
         selectedCamera,
-        ResolutionPreset.medium,
+        ResolutionPreset.low, // Giảm resolution để tăng tốc độ xử lý MediaPipe
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
@@ -336,7 +338,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     
     _controller = CameraController(
       newCamera,
-      ResolutionPreset.medium,
+      ResolutionPreset.low,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
     );
@@ -359,7 +361,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     }
   }
 
-  /// Dictionary Mode: Bắt đầu ghi 30 frames
+  /// Dictionary Mode: Bắt đầu ghi 40 frames
   Future<void> _startDictionaryRecording() async {
     if (_controller == null || !_controller!.value.isInitialized) return;
     
@@ -385,7 +387,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Đang ghi 30 frames... Thực hiện ký hiệu ngay!'),
+          content: Text('Đang ghi 40 frames... Thực hiện ký hiệu ngay!'),
           duration: Duration(seconds: 2),
           backgroundColor: Colors.blue,
         ),
@@ -396,7 +398,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     _recordDictionaryFrames();
   }
   
-  /// Ghi 30 frames cho Dictionary mode
+  /// Ghi 40 frames cho Dictionary mode
   /// Logic giống dictionary_mode.py: record_one_sequence()
   void _recordDictionaryFrames() {
     if (_controller == null || !_controller!.value.isInitialized) return;
@@ -408,14 +410,19 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     _controller!.startImageStream((CameraImage image) {
       if (!_isRecordingDictionary || !mounted) return;
       
+      // Sử dụng FrameProcessor để giới hạn FPS ghi hình
+      // Nếu ghi 30fps (tốc độ camera), 40 frames chỉ mất 1.3s -> Quá nhanh user chưa kịp làm gì
+      // Nếu ghi 15fps, 40 frames mất 2.6s -> Đủ thời gian cho 1 ký hiệu
+      if (!_frameProcessor.shouldProcessFrame()) return;
+
       setState(() {
         // Lưu frame vào list
         _dictionaryFrames.add(image);
         _dictionaryFrameCount++;
       });
       
-      // Khi đủ 30 frames, dừng và predict
-      if (_dictionaryFrameCount >= 30) {
+      // Khi đủ 40 frames, dừng và predict
+      if (_dictionaryFrameCount >= 40) {
         _stopDictionaryRecording();
       }
     });
@@ -440,7 +447,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
       print('⚠️ Lỗi khi dừng stream sau khi ghi dictionary: $e');
     }
     
-    if (_dictionaryFrames.length == 30) {
+    if (_dictionaryFrames.length == 40) {
       if (!mounted) return;
       final currentContext = context;
       
@@ -497,7 +504,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
       }
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ghi thất bại. Chỉ ghi được ${_dictionaryFrames.length}/30 frames')),
+        SnackBar(content: Text('Ghi thất bại. Chỉ ghi được ${_dictionaryFrames.length}/40 frames')),
       );
       // Resume realtime stream
       if (_translationMode == TranslationMode.realtime) {
@@ -542,8 +549,8 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
         SnackBar(
           content: Text(
             _translationMode == TranslationMode.realtime
-                ? 'Chế độ: Realtime (threshold 80%)'
-                : 'Chế độ: Dictionary (nhấn nút để ghi 30 frames, threshold 60%)',
+                ? 'Chế độ: Realtime (threshold 50%)'
+                : 'Chế độ: Dictionary (nhấn nút để ghi 40 frames, threshold 50%)',
           ),
           duration: const Duration(seconds: 2),
         ),
@@ -716,6 +723,24 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                       ),
                     ),
                 ],
+              ),
+            ),
+
+          // Lớp vẽ Keypoints (Overlay)
+          if (_isInitialized)
+            Positioned.fill(
+              child: Consumer<TranslationProvider>(
+                builder: (context, provider, _) {
+                  if (provider.currentKeypoints == null) return const SizedBox.shrink();
+                  // CustomPaint cần vẽ đè lên toàn bộ preview
+                  return CustomPaint(
+                    painter: KeypointsPainter(
+                      keypoints: provider.currentKeypoints!,
+                      sourceSize: const Size(320, 240), // Kích thước ảnh đầu vào xử lý
+                      isFrontCamera: _controller?.description.lensDirection == CameraLensDirection.front,
+                    ),
+                  );
+                },
               ),
             ),
           
@@ -951,7 +976,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                                       ),
                                     ),
                                     const Text(
-                                      '/30',
+                                      '/40',
                                       style: TextStyle(
                                         color: Colors.white,
                                         fontSize: 10,
@@ -1008,7 +1033,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              'Đang ghi: $_dictionaryFrameCount/30 frames',
+                              'Đang ghi: $_dictionaryFrameCount/40 frames',
                               style: const TextStyle(color: Colors.white70, fontSize: 12),
                             ),
                           ],
@@ -1026,7 +1051,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                       else
                         Text(
                           _isMLReady
-                              ? 'Nhấn nút để ghi 30 frames và dịch (độ tin cậy ≥ 60%)'
+                              ? 'Nhấn nút để ghi 40 frames và dịch (độ tin cậy ≥ 50%)'
                               : '⚠️ Tính năng dịch AI chưa sẵn sàng',
                           style: TextStyle(
                             color: _isMLReady ? Colors.white70 : Colors.orange[300],
@@ -1046,7 +1071,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                                 ? 'Đang phân tích ký hiệu realtime...'
                                 : '⚠️ Tính năng dịch AI chưa sẵn sàng')
                             : (_isMLReady
-                                ? 'Nhấn nút để ghi 30 frames và dịch'
+                                ? 'Nhấn nút để ghi 40 frames và dịch'
                                 : '⚠️ Tính năng dịch AI chưa sẵn sàng'),
                         style: TextStyle(
                           color: _isMLReady ? Colors.white70 : Colors.orange[300],
@@ -1055,31 +1080,31 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      if (_isProcessing)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              SizedBox(
-                                width: 12,
-                                height: 12,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Đang xử lý...',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                      // if (_isProcessing)
+                      //   Padding(
+                      //     padding: const EdgeInsets.only(top: 4),
+                      //     child: Row(
+                      //       mainAxisAlignment: MainAxisAlignment.center,
+                      //       children: [
+                      //         SizedBox(
+                      //           width: 12,
+                      //           height: 12,
+                      //           child: CircularProgressIndicator(
+                      //             strokeWidth: 2,
+                      //             valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                      //           ),
+                      //         ),
+                      //         const SizedBox(width: 8),
+                      //         Text(
+                      //           'Đang xử lý...',
+                      //           style: TextStyle(
+                      //             color: Colors.white70,
+                      //             fontSize: 11,
+                      //           ),
+                      //         ),
+                      //       ],
+                      //     ),
+                      //   ),
                     ],
                   ),
                 ],
@@ -1270,9 +1295,12 @@ class _ResultDialogContentState extends State<_ResultDialogContent> {
                           ],
                         )
                       : widget.imagePath != null
-                          ? Image.file(
-                              File(widget.imagePath!),
-                              fit: BoxFit.contain,
+                          ? RotatedBox(
+                              quarterTurns: 2, // Xoay 90 độ
+                              child: Image.file(
+                                File(widget.imagePath!),
+                                fit: BoxFit.contain,
+                              ),
                             )
                           : const Center(
                               child: Icon(Icons.image, color: Colors.white70, size: 48),

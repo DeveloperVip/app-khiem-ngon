@@ -4,33 +4,12 @@ import 'package:flutter/foundation.dart';
 
 /// Xử lý frame từ camera trong isolate riêng để không block UI thread
 class FrameProcessor {
-  static const int _targetFps = 5; // Xử lý 5 frame/giây để cân bằng performance
-  static const int _frameSkipCount = 6; // Skip 6 frame giữa mỗi lần xử lý (30fps / 6 = 5fps)
-  
-  int _frameCount = 0;
-  DateTime? _lastProcessedTime;
-  final Duration _minProcessingInterval = Duration(milliseconds: 1000 ~/ _targetFps);
-
   /// Xử lý frame từ camera stream
-  /// Trả về true nếu frame được xử lý, false nếu bị skip
+  /// Trả về true nếu frame được cho phép xử lý
   bool shouldProcessFrame() {
-    _frameCount++;
-    
-    // Skip frame để giảm tải xử lý
-    if (_frameCount % _frameSkipCount != 0) {
-      return false;
-    }
-
-    // Kiểm tra interval tối thiểu giữa các lần xử lý
-    final now = DateTime.now();
-    if (_lastProcessedTime != null) {
-      final elapsed = now.difference(_lastProcessedTime!);
-      if (elapsed < _minProcessingInterval) {
-        return false;
-      }
-    }
-
-    _lastProcessedTime = now;
+    // Không giới hạn FPS cứng để đảm bảo video mượt nhất có thể (30-60 FPS)
+    // Việc throttling sẽ do flag _isProcessing ở CameraScreen đảm nhận
+    // (Nếu frame trước chưa xong -> Frame sau tự động bị drop)
     return true;
   }
 
@@ -66,8 +45,9 @@ class FrameProcessor {
 
   /// Reset frame counter (gọi khi dừng xử lý)
   void reset() {
-    _frameCount = 0;
-    _lastProcessedTime = null;
+    // Không còn state để reset vì đã bỏ throttling
+    // _frameCount = 0;
+    // _lastProcessedTime = null;
   }
 }
 

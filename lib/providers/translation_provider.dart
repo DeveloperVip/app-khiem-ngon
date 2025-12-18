@@ -10,11 +10,13 @@ class TranslationProvider extends ChangeNotifier {
 
   List<TranslationResult> _history = [];
   TranslationResult? _currentResult;
+  List<double>? _currentKeypoints; // Keypoints hiện tại để vẽ
   bool _isProcessing = false;
   String? _errorMessage;
 
   List<TranslationResult> get history => _history;
   TranslationResult? get currentResult => _currentResult;
+  List<double>? get currentKeypoints => _currentKeypoints; // Getter mới
   bool get isProcessing => _isProcessing;
   String? get errorMessage => _errorMessage;
   bool get isReady => _translationService.isReady; // Trạng thái ML service
@@ -121,7 +123,7 @@ class TranslationProvider extends ChangeNotifier {
     }
   }
 
-  /// Dictionary Mode: Ghi 30 frames rồi predict
+  /// Dictionary Mode: Ghi 40 frames rồi predict
   /// Logic giống dictionary_mode.py - threshold 0.6
   Future<void> translateDictionarySequence(List<CameraImage> frames) async {
     if (!_isServiceInitialized) {

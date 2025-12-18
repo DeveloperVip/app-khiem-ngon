@@ -1,14 +1,29 @@
 {
   "actions": [
+    "null",
     "xin_chao",
+    "toi",
+    "ban",
     "cam_on",
-    "xin_loi"
+    "xin_loi",
+    "yeu",
+    "ghet",
+    "tuyet_voi",
+    "tam_biet"
   ],
   "action_display": {
+    "null": "",
     "xin_chao": "Xin chào",
+    "toi": "Tôi",
+    "ban": "Bạn",
     "cam_on": "Cảm ơn",
-    "xin_loi": "Xin lỗi"
+    "xin_loi": "Xin lỗi",
+    "yeu": "Yêu",
+    "ghet": "Ghét",
+    "tuyet_voi": "Tuyệt vời",
+    "tam_biet": "Tạm biệt"
   },
   "sequence_length": 30,
-  "num_keypoints": 1662
+  "num_keypoints": 1662,
+  "model_path": "best_model.tflite"
 }

@@ -65,6 +65,9 @@ flutter {
 }
 
 dependencies {
+    // MediaPipe Tasks Vision (New API)
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
+
     // TensorFlow Lite - sẽ chỉ có native libs cho ARM
     // App sẽ vẫn chạy trên x86 nhưng không có ML
     implementation("org.tensorflow:tensorflow-lite:2.14.0") {

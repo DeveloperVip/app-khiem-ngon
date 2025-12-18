@@ -47,12 +47,21 @@ class _UploadScreenState extends State<UploadScreen> {
   Future<void> _pickVideo() async {
     final file = await _mediaService.pickVideo();
     if (file != null) {
+      // Lưu file vào thư mục ứng dụng để đảm bảo truy cập được
+      // (Fix lỗi khi pick từ Google Photos/Cloud trả về content:// URI mà VideoPlayer không đọc được)
+      final savedPath = await _mediaService.saveFile(file);
+      
       setState(() {
-        _selectedFile = File(file.path);
+        _selectedFile = File(savedPath);
         _videoController?.dispose();
         _videoController = VideoPlayerController.file(_selectedFile!)
           ..initialize().then((_) {
             setState(() {});
+          }).catchError((e) {
+            print('Error initializing video player: $e');
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Không thể phát video này: $e')),
+            );
           });
       });
     }
@@ -88,6 +97,13 @@ class _UploadScreenState extends State<UploadScreen> {
     }
 
     if (provider.currentResult != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ Upload thành công (Secure Link)! Đang hiển thị kết quả...'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
       _showResultDialog(provider.currentResult!);
     }
   }

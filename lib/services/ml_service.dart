@@ -4,7 +4,7 @@ import 'dart:convert';
 /// Service để load và chạy TensorFlow Lite model
 /// Sử dụng native Android inference với Flex Delegate support
 class MLService {
-  static const String _modelPath = 'assets/models/tf_lstm_best.tflite';
+  static const String _modelPath = 'assets/models/best_model.tflite';
   static const String _actionsPath = 'assets/models/actions.json';
   static const MethodChannel _channel = MethodChannel('com.example.flutter_application_initial/tflite');
   
@@ -37,11 +37,8 @@ class MLService {
           print('⚠️ Không thể lấy shapes: $e');
         }
       } catch (e) {
-        print('❌ Không thể load model qua native code: $e');
-        print('❌ Kiểm tra:');
-        print('   1. File có tồn tại tại: $_modelPath');
-        print('   2. Đã khai báo trong pubspec.yaml: assets: - assets/models/');
-        print('   3. Đã rebuild app sau khi thay đổi');
+        // print('❌ Không thể load model qua native code: $e');
+        print('   Lỗi load model (có thể do chưa setup xong hoặc chạy trên emulator không có GPU delegate): $e');
         _isInitialized = true;
         return;
       }
@@ -86,19 +83,30 @@ class MLService {
     }
 
     if (_actionsData == null || sequence.length != _actionsData!['sequence_length']) {
-      throw Exception(
-        'Sequence length không đúng. Cần ${_actionsData?['sequence_length']}, nhận được ${sequence.length}'
+      // Ignore mismatch if it's close enough or just log warning instead of throwing to avoid crash loop
+       print(
+        '⚠️ Sequence length warning. Config: ${_actionsData?['sequence_length']}, Recieved: ${sequence.length}'
       );
+      if (sequence.length != _actionsData!['sequence_length']) {
+         return {
+          'action_key': 'unknown',
+          'display_text': 'Đang chờ đủ frame...',
+          'confidence': 0.0,
+          'probabilities': [],
+          'all_actions': [],
+          'is_unknown': true,
+        };
+      }
     }
 
     try {
       // Convert sequence thành tensor input shape (1, sequenceLength, numKeypoints)
       final input = [sequence];
-      print('Input shape: ${input} x ${input[0].length}');
+      
       // Gọi native inference
       final List<dynamic> rawOutput = await _channel.invokeMethod('runInference', {'input': input});
       final probabilities = rawOutput.map<double>((e) => (e as num).toDouble()).toList();
-      print('Probabilities: $probabilities');
+      
       // Tìm class có probability cao nhất
       double maxProb = 0.0;
       int maxIdx = 0;
@@ -112,26 +120,41 @@ class MLService {
       // Ngưỡng confidence tối thiểu để coi là hợp lệ (60%)
       const double minConfidenceThreshold = 0.6;
       
-      // Nếu confidence quá thấp, coi như không tìm thấy
-      if (maxProb < minConfidenceThreshold) {
-        print('⚠️ Confidence quá thấp: ${(maxProb * 100).toStringAsFixed(1)}% < ${(minConfidenceThreshold * 100).toStringAsFixed(0)}%');
-        return {
-          'action_key': 'unknown',
-          'display_text': 'Thao tác ngôn ngữ ký hiệu không được tìm thấy',
+      // Lấy action key
+      final actions = _actionsData!['actions'] as List;
+      final predictedKey = actions[maxIdx] as String;
+
+      // Handle 'null' class (index 0 usually, or explicitly named 'null')
+      if (predictedKey == 'null') {
+         // Nếu dự đoán là 'null' (không làm gì), trả về trạng thái bình thường/unknown
+          return {
+          'action_key': 'null',
+          'display_text': '', // Hoặc '...', hiển thị trống
           'confidence': maxProb,
           'probabilities': probabilities,
-          'all_actions': _actionsData!['actions'] as List,
-          'is_unknown': true, // Flag để biết là không tìm thấy
+          'all_actions': actions,
+          'is_unknown': true, // Treat as unknown/nothing to display
+        };
+      }
+      
+      // Nếu confidence quá thấp
+      if (maxProb < minConfidenceThreshold) {
+        return {
+          'action_key': 'unknown',
+          'display_text': '...',
+          'confidence': maxProb,
+          'probabilities': probabilities,
+          'all_actions': actions,
+          'is_unknown': true, 
         };
       }
 
-      // Lấy action key và display text
-      final actions = _actionsData!['actions'] as List;
+      // Lấy display text
       final actionDisplay = _actionsData!['action_display'] as Map<String, dynamic>;
-      final predictedKey = actions[maxIdx] as String;
       final displayText = actionDisplay[predictedKey] ?? predictedKey;
 
-      print('✅ Dự đoán thành công: $displayText (${(maxProb * 100).toStringAsFixed(1)}%)');
+      // In ít log hơn, chỉ in khi kết quả thay đổi hoặc confidence rất cao
+      // print('✅ Dự đoán: $displayText ($predictedKey) - ${(maxProb * 100).toStringAsFixed(1)}%');
 
       return {
         'action_key': predictedKey,
@@ -143,7 +166,14 @@ class MLService {
       };
     } catch (e) {
       print('❌ Lỗi khi dự đoán: $e');
-      rethrow;
+      return {
+          'action_key': 'error',
+          'display_text': 'Lỗi nhận diện',
+          'confidence': 0.0,
+          'probabilities': [],
+          'all_actions': [],
+          'is_unknown': true,
+        };
     }
   }
 

@@ -10,6 +10,18 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 
+// MediaPipe Tasks Vision Imports
+import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.vision.core.RunningMode
+import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
+import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker.PoseLandmarkerOptions
+import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
+import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker.HandLandmarkerOptions
+import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
+import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker.FaceLandmarkerOptions
+import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.framework.image.MPImage
+
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.example.flutter_application_initial/tflite"
     private var interpreter: Any? = null  // Dynamic type để tránh crash khi không có TFLite
@@ -56,7 +68,7 @@ class MainActivity : FlutterActivity() {
                     }
                     
                     try {
-                        val modelPath = call.argument<String>("modelPath") ?: "assets/models/tf_lstm_best.tflite"
+                        val modelPath = call.argument<String>("modelPath") ?: "assets/models/tf_lstm_vocab_best.tflite"
                         loadModelOnArm(modelPath)
                         result.success(true)
                     } catch (e: Exception) {
@@ -111,6 +123,79 @@ class MainActivity : FlutterActivity() {
                 "disposeModel" -> {
                     disposeModel()
                     result.success(true)
+                }
+                "processFrame" -> {
+                    try {
+                        val yBytes = call.argument<ByteArray>("yBytes")
+                        val uBytes = call.argument<ByteArray>("uBytes")
+                        val vBytes = call.argument<ByteArray>("vBytes")
+                        val width = call.argument<Int>("width")
+                        val height = call.argument<Int>("height")
+                        val yRowStride = call.argument<Int>("yRowStride")
+                        val uvRowStride = call.argument<Int>("uvRowStride")
+                        val uvPixelStride = call.argument<Int>("uvPixelStride")
+                        
+                        if (yBytes == null || uBytes == null || vBytes == null || width == null || height == null) {
+                            result.error("INVALID_ARGS", "Missing arguments", null)
+                            return@setMethodCallHandler
+                        }
+                        
+                        val keypoints = processFrame(
+                            yBytes, uBytes, vBytes, width, height, 
+                            yRowStride ?: width, 
+                            uvRowStride ?: width, 
+                            uvPixelStride ?: 2
+                        )
+                        result.success(keypoints)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Process Frame Error: ${e.message}")
+                        result.error("PROCESS_ERROR", e.message, null)
+                    }
+                }
+                "processVideoFile" -> {
+                    val filePath = call.argument<String>("filePath")
+                    if (filePath == null) {
+                        result.error("INVALID_ARGS", "File path is null", null)
+                        return@setMethodCallHandler
+                    }
+                    
+                    try {
+                        // Trích xuất frame từ video file
+                        val retriever = android.media.MediaMetadataRetriever()
+                        retriever.setDataSource(filePath)
+                        
+                        // Lấy thời lượng để lấy frame ở giữa (nơi hành động thường rõ nhất)
+                        val durationStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        val durationMs = durationStr?.toLongOrNull() ?: 0L
+                        val timeMicroseconds = (durationMs / 2) * 1000 
+                        
+                        // Lấy frame (Bitmap)
+                        val bitmap = retriever.getFrameAtTime(timeMicroseconds, android.media.MediaMetadataRetriever.OPTION_CLOSEST)
+                        retriever.release()
+
+                        if (bitmap != null) {
+                            ensureMediaPipeInitialized()
+                            if (poseLandmarker == null) { // Check init fail
+                                result.error("INIT_ERROR", "MediaPipe not ready", null)
+                                return@setMethodCallHandler
+                            }
+
+                            // Chạy MediaPipe trên Bitmap này
+                            val mpImage = com.google.mediapipe.framework.image.BitmapImageBuilder(bitmap).build()
+                            
+                            val poseResult = poseLandmarker!!.detect(mpImage)
+                            val faceResult = faceLandmarker!!.detect(mpImage)
+                            val handsResult = handLandmarker!!.detect(mpImage)
+                            
+                            val keypoints = extractKeypointsFromTasksResults(poseResult, faceResult, handsResult)
+                            result.success(keypoints)
+                        } else {
+                            result.error("FRAME_ERROR", "Could not extract frame from video", null)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Process Video Error: ${e.message}")
+                        result.error("PROCESS_ERROR", e.message, null)
+                    }
                 }
                 else -> {
                     result.notImplemented()
@@ -280,13 +365,256 @@ class MainActivity : FlutterActivity() {
                 val closeMethod = delegateClass.getMethod("close")
                 closeMethod.invoke(flexDelegate)
             }
+             poseLandmarker?.close()
+             faceLandmarker?.close()
+             handLandmarker?.close()
         } catch (e: Exception) {
             Log.w(TAG, "⚠️ Lỗi khi dispose: ${e.message}")
         }
         interpreter = null
         flexDelegate = null
         isModelLoaded = false
-        Log.d(TAG, "🗑️ Đã giải phóng model")
+        poseLandmarker = null
+        faceLandmarker = null
+        handLandmarker = null
+        Log.d(TAG, "🗑️ Đã giải phóng model và mediapipe")
+    }
+
+    // --- MEDIAPIPE TASKS VISION IMPLEMENTATION (2024 API) ---
+    private var poseLandmarker: com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker? = null
+    private var faceLandmarker: com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker? = null
+    private var handLandmarker: com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker? = null
+    
+    private fun ensureMediaPipeInitialized() {
+        // MediaPipe Native libraries (JNI) are typically only available for ARM architectures.
+        // Running on x86/x86_64 Emulators will cause UnsatisfiedLinkError.
+        if (!isArmDevice()) {
+            if (!isModelLoaded) { // Log only once to avoid spam
+                 Log.e(TAG, "❌ MediaPipe KHÔNG hỗ trợ giả lập x86. Vui lòng sử dụng thiết bị Android thật (ARM) để sử dụng tính năng này.")
+                 isModelLoaded = true // Flag to suppress repeated errors
+            }
+            return
+        }
+
+        if (poseLandmarker == null) {
+             try {
+                // Initialize Pose
+                val poseOptions = PoseLandmarker.PoseLandmarkerOptions.builder()
+                    .setBaseOptions(BaseOptions.builder().setModelAssetPath("pose_landmarker.task").build())
+                    .setRunningMode(RunningMode.IMAGE)
+                    .setNumPoses(1)
+                    .setMinPoseDetectionConfidence(0.5f)
+                    .setMinPosePresenceConfidence(0.5f)
+                    .setMinTrackingConfidence(0.5f)
+                    .build()
+                poseLandmarker = PoseLandmarker.createFromOptions(this, poseOptions)
+                
+                // Initialize Face
+                val faceOptions = FaceLandmarker.FaceLandmarkerOptions.builder()
+                    .setBaseOptions(BaseOptions.builder().setModelAssetPath("face_landmarker.task").build())
+                    .setRunningMode(RunningMode.IMAGE)
+                    .setNumFaces(1)
+                    .setMinFaceDetectionConfidence(0.5f)
+                    .setMinFacePresenceConfidence(0.5f)
+                    .setMinTrackingConfidence(0.5f)
+                    .build()
+                faceLandmarker = FaceLandmarker.createFromOptions(this, faceOptions)
+                
+                // Initialize Hands
+                val handOptions = HandLandmarker.HandLandmarkerOptions.builder()
+                    .setBaseOptions(BaseOptions.builder().setModelAssetPath("hand_landmarker.task").build())
+                    .setRunningMode(RunningMode.IMAGE)
+                    .setNumHands(2)
+                    .setMinHandDetectionConfidence(0.5f)
+                    .setMinHandPresenceConfidence(0.5f)
+                    .setMinTrackingConfidence(0.5f)
+                    .build()
+                handLandmarker = HandLandmarker.createFromOptions(this, handOptions)
+                
+                Log.d(TAG, "✅ Đã khởi tạo MediaPipe Tasks Vision thành công")
+             } catch (e:  Throwable) { // Catch both Exception and Error (UnsatisfiedLinkError)
+                 Log.e(TAG, "❌ Lỗi khởi tạo MediaPipe: ${e.message}")
+                 // In case of error, try to clean up
+                 disposeModel()
+             }
+        }
+    }
+
+    // Input: YUV Bytes, Output: List<Double> (1662 keypoints)
+    private fun processFrame(
+        yBytes: ByteArray, 
+        uBytes: ByteArray, 
+        vBytes: ByteArray, 
+        width: Int, 
+        height: Int, 
+        yRowStride: Int, 
+        uvRowStride: Int, 
+        uvPixelStride: Int
+    ): List<Double> {
+        
+        ensureMediaPipeInitialized()
+        if (poseLandmarker == null || faceLandmarker == null || handLandmarker == null) return List(1662) { 0.0 }
+        
+        // 1. Convert YUV to Bitmap
+        val bitmap = yuv420ToBitmap(yBytes, uBytes, vBytes, width, height, yRowStride, uvRowStride, uvPixelStride) 
+            ?: return List(1662) { 0.0 }
+        
+        // 2. Create MPImage
+        val mpImage = com.google.mediapipe.framework.image.BitmapImageBuilder(bitmap).build()
+        
+        // 3. Run MediaPipe (Sequentially)
+        // Using RunningMode.IMAGE, so we just call detect(image)
+        val poseResult = poseLandmarker!!.detect(mpImage)
+        val faceResult = faceLandmarker!!.detect(mpImage)
+        val handsResult = handLandmarker!!.detect(mpImage)
+        
+        // 4. Combine results
+        return extractKeypointsFromTasksResults(poseResult, faceResult, handsResult)
+    }
+    
+    private fun extractKeypointsFromTasksResults(
+        poseResult: com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult,
+        faceResult: com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult,
+        handsResult: com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
+    ): List<Double> {
+        val keypoints = ArrayList<Double>(1662)
+        
+        // 1. Pose: 33 items * 4 (x, y, z, visibility) = 132
+        val poseLandmarksList = poseResult.landmarks()
+        if (poseLandmarksList.isNotEmpty()) {
+            val landmarks = poseLandmarksList[0] // First pose
+            for (lm in landmarks) {
+                keypoints.add(lm.x().toDouble())
+                keypoints.add(lm.y().toDouble())
+                keypoints.add(lm.z().toDouble())
+                // Visibility is optional in NormalizedLandmark in Tasks? 
+                // Tasks Vision NormalizedLandmark has visibility() method returning Optional.
+                val vis = if (lm.visibility().isPresent) lm.visibility().get() else 0.0f
+                keypoints.add(vis.toDouble())
+            }
+             // Check if less than 33? usually always 33 for Blazepose
+        } else {
+             for (i in 0 until 132) keypoints.add(0.0)
+        }
+        
+        // 2. Face: 468 items * 3 (x, y, z) = 1404
+        val faceLandmarksList = faceResult.faceLandmarks()
+        if (faceLandmarksList.isNotEmpty()) {
+            val landmarks = faceLandmarksList[0] // First face
+            var count = 0
+            for (lm in landmarks) {
+                if (count >= 468) break
+                keypoints.add(lm.x().toDouble())
+                keypoints.add(lm.y().toDouble())
+                keypoints.add(lm.z().toDouble())
+                count++
+            }
+             for (i in count until 468) {
+                 keypoints.add(0.0); keypoints.add(0.0); keypoints.add(0.0)
+             }
+        } else {
+             for (i in 0 until 1404) keypoints.add(0.0)
+        }
+        
+        // 3. Hands: Left (63) then Right (63)
+        val handLandmarksList = handsResult.landmarks()
+        val handednessList = handsResult.handedness()
+        
+        var leftHandPoints: List<Double>? = null
+        var rightHandPoints: List<Double>? = null
+        
+        if (handLandmarksList.isNotEmpty() && handednessList.isNotEmpty()) {
+            for (i in handLandmarksList.indices) {
+                if (i >= handednessList.size) break
+                // handednessList[i] is a list of categories (usually 1 items)
+                val categories = handednessList[i]
+                if (categories.isEmpty()) continue
+                
+                val label = categories[0].categoryName() // "Left" or "Right"
+                val landmarks = handLandmarksList[i]
+                
+                val points = ArrayList<Double>()
+                for (lm in landmarks) {
+                    points.add(lm.x().toDouble())
+                    points.add(lm.y().toDouble())
+                    points.add(lm.z().toDouble())
+                }
+                
+                if (label == "Left") {
+                    leftHandPoints = points
+                } else {
+                    rightHandPoints = points
+                }
+            }
+        }
+        
+        // Add Left Hand
+        if (leftHandPoints != null) {
+            keypoints.addAll(leftHandPoints)
+        } else {
+             for (i in 0 until 63) keypoints.add(0.0)
+        }
+        
+        // Add Right Hand
+        if (rightHandPoints != null) {
+            keypoints.addAll(rightHandPoints)
+        } else {
+             for (i in 0 until 63) keypoints.add(0.0)
+        }
+        
+        return keypoints
+    }
+
+    private fun yuv420ToBitmap(
+        yBytes: ByteArray, 
+        uBytes: ByteArray, 
+        vBytes: ByteArray, 
+        width: Int, 
+        height: Int,
+        yRowStride: Int,
+        uvRowStride: Int,
+        uvPixelStride: Int
+    ): android.graphics.Bitmap? {
+        val nv21 = ByteArray(width * height * 3 / 2)
+        var pos = 0
+        
+        if (yRowStride == width) {
+             System.arraycopy(yBytes, 0, nv21, 0, width * height)
+             pos += width * height
+        } else {
+            for (row in 0 until height) {
+                System.arraycopy(yBytes, row * yRowStride, nv21, pos, width)
+                pos += width
+            }
+        }
+        
+        val uvHeight = height / 2
+        val uvWidth = width / 2
+        var uvPos = width * height
+        
+        for (row in 0 until uvHeight) {
+            for (col in 0 until uvWidth) {
+                val uIndex = row * uvRowStride + col * uvPixelStride
+                val vIndex = row * uvRowStride + col * uvPixelStride
+                
+                if (vIndex < vBytes.size) nv21[uvPos++] = vBytes[vIndex] else nv21[uvPos++] = 0
+                if (uIndex < uBytes.size) nv21[uvPos++] = uBytes[uIndex] else nv21[uvPos++] = 0
+            }
+        }
+        
+        val yuvImage = android.graphics.YuvImage(nv21, android.graphics.ImageFormat.NV21, width, height, null)
+        val out = java.io.ByteArrayOutputStream()
+        yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 90, out)
+        val imageBytes = out.toByteArray()
+        val originalBitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+        
+        // Rotate 270 degrees (Standard for Front Camera Portrait to fix upside-down)
+        val matrix = android.graphics.Matrix()
+        matrix.postRotate(270f)
+        
+        return android.graphics.Bitmap.createBitmap(
+            originalBitmap, 0, 0, originalBitmap.width, originalBitmap.height, matrix, true
+        )
     }
     
     override fun onDestroy() {
