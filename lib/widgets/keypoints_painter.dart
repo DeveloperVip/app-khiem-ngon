@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:math' as Math;
 
 class KeypointsPainter extends CustomPainter {
   final List<double> keypoints;
@@ -14,6 +15,9 @@ class KeypointsPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (keypoints.isEmpty || keypoints.length != 1662) return;
+
+    // --- MARGIN: Vùng an toàn (giống demo_opencv.py) ---
+    const double margin = 30.0; // Khoảng cách an toàn so với mép màn hình
 
     // --- ĐỊNH NGHĨA MÀU SẮC THEO YÊU CẦU ---
     final paintBody = Paint()
@@ -42,14 +46,160 @@ class KeypointsPainter extends CustomPainter {
       ..strokeWidth = 3.0
       ..style = PaintingStyle.fill;
 
-    // Tính tỷ lệ scale
-    final double scaleX = size.width;
-    final double scaleY = size.height;
+    // --- TÍNH TOÁN SCALE VÀ CROP (Để fix lỗi lệch điểm) ---
+    // MediaPipe trả về toạ độ normalized [0, 1] dựa trên ảnh source (vd: 320x240)
+    // CameraPreview thường hiển thị theo dạng BoxFit.cover (cắt mép để lấp đầy màn hình)
+    
+    final double canvasWidth = size.width;
+    final double canvasHeight = size.height;
+    
+    // Giả sử ảnh source sau khi rotate là Portrait (W < H)
+    // Ví dụ: sourceWidth=240, sourceHeight=320 sau khi xoay 270 độ
+    double imageWidth = sourceSize.width;
+    double imageHeight = sourceSize.height;
 
-    // Helper: Map toạ độ (0-1) -> Screen
+    // Tính toán tỷ lệ để lấp đầy canvas (BoxFit.cover)
+    double scale = Math.max(canvasWidth / imageWidth, canvasHeight / imageHeight);
+    
+    // Phần bù để căn giữa (phần bị crop)
+    double offsetX = (canvasWidth - imageWidth * scale) / 2;
+    double offsetY = (canvasHeight - imageHeight * scale) / 2;
+
+    // Helper: Map toạ độ (0-1) -> Screen (Đã bao gồm bù trừ crop)
     Offset getPoint(double x, double y) {
-      double finalX = isFrontCamera ? (1 - x) : x;
-      return Offset(finalX * scaleX, y * scaleY);
+      // Vì Native đã xử lý Rotate và Mirror khớp với Camera Preview,
+      // nên chúng ta không cần lật lại toạ độ ở đây nữa.
+      double finalX = x; 
+      
+      // Map toạ độ 0-1 vào kích thước ảnh đã scale, sau đó cộng offset crop
+      return Offset(
+        finalX * imageWidth * scale + offsetX,
+        y * imageHeight * scale + offsetY
+      );
+    }
+
+    // --- KIỂM TRA VÙNG AN TOÀN CHO TAY ---
+    bool isLeftHandSafe = true;
+    bool isRightHandSafe = true;
+    
+    // Kiểm tra tay trái (left hand landmarks: 1536-1598)
+    int leftHandStart = 1536;
+    for (int i = 0; i < 21; i++) {
+      int idx = leftHandStart + (i * 3);
+      double x = keypoints[idx];
+      double y = keypoints[idx + 1];
+      
+      if (x != 0 && y != 0) {
+        Offset point = getPoint(x, y);
+        if (point.dx < margin || point.dx > canvasWidth - margin ||
+            point.dy < margin || point.dy > canvasHeight - margin) {
+          isLeftHandSafe = false;
+          break;
+        }
+      }
+    }
+    
+    // Kiểm tra tay phải (right hand landmarks: 1599-1661)
+    int rightHandStart = 1599;
+    for (int i = 0; i < 21; i++) {
+      int idx = rightHandStart + (i * 3);
+      double x = keypoints[idx];
+      double y = keypoints[idx + 1];
+      
+      if (x != 0 && y != 0) {
+        Offset point = getPoint(x, y);
+        if (point.dx < margin || point.dx > canvasWidth - margin ||
+            point.dy < margin || point.dy > canvasHeight - margin) {
+          isRightHandSafe = false;
+          break;
+        }
+      }
+    }
+    
+    // Xác định màu sắc và trạng thái
+    bool isSafe = isLeftHandSafe && isRightHandSafe;
+    Color safeZoneColor = isSafe ? Colors.green : Colors.red;
+    double safeZoneThickness = isSafe ? 2.0 : 10.0;
+    String statusText = isSafe ? "GÓC MÁY: OK" : "CẢNH BÁO: TAY RA KHỎI KHUNG HÌNH!";
+    
+    // --- VẼ SAFE ZONE (Khung vùng an toàn) ---
+    final paintSafeZone = Paint()
+      ..color = safeZoneColor
+      ..strokeWidth = safeZoneThickness
+      ..style = PaintingStyle.stroke;
+    
+    canvas.drawRect(
+      Rect.fromLTRB(margin, margin, canvasWidth - margin, canvasHeight - margin),
+      paintSafeZone,
+    );
+    
+    // --- VẼ THÔNG BÁO TRẠNG THÁI ---
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: statusText,
+        style: TextStyle(
+          color: safeZoneColor,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          shadows: [
+            Shadow(
+              color: Colors.black.withOpacity(0.8),
+              offset: const Offset(2, 2),
+              blurRadius: 4,
+            ),
+          ],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+    textPainter.paint(canvas, const Offset(50, 50));
+    
+    // --- VẼ CẢNH BÁO CHO TỪNG TAY ---
+    if (!isLeftHandSafe) {
+      final leftWarningPainter = TextPainter(
+        text: const TextSpan(
+          text: "<-- Tay Trái mất tín hiệu",
+          style: TextStyle(
+            color: Colors.red,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            shadows: [
+              Shadow(
+                color: Colors.black,
+                offset: Offset(1, 1),
+                blurRadius: 3,
+              ),
+            ],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      leftWarningPainter.layout();
+      leftWarningPainter.paint(canvas, Offset(50, canvasHeight - 50));
+    }
+    
+    if (!isRightHandSafe) {
+      final rightWarningPainter = TextPainter(
+        text: const TextSpan(
+          text: "Tay Phải mất tín hiệu -->",
+          style: TextStyle(
+            color: Colors.red,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            shadows: [
+              Shadow(
+                color: Colors.black,
+                offset: Offset(1, 1),
+                blurRadius: 3,
+              ),
+            ],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      rightWarningPainter.layout();
+      rightWarningPainter.paint(canvas, Offset(canvasWidth - 350, canvasHeight - 50));
     }
 
     // ==========================================================
@@ -107,9 +257,7 @@ class KeypointsPainter extends CustomPainter {
     // ==========================================================
     // 2. HANDS (21 points each) - Màu Xanh
     // ==========================================================
-    int leftHandStart = 1536;
-    int rightHandStart = 1599;
-
+    // Sử dụng leftHandStart và rightHandStart đã khai báo ở trên (dòng 63, 80)
     _drawHand(canvas, leftHandStart, paintHandPoint, paintHandLine, getPoint);
     _drawHand(canvas, rightHandStart, paintHandPoint, paintHandLine, getPoint);
   }

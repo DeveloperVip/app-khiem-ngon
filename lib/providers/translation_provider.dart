@@ -93,7 +93,7 @@ class TranslationProvider extends ChangeNotifier {
 
   /// Xử lý frame từ camera stream trực tiếp (REALTIME CONTINUOUS MODE)
   /// Logic giống realtime_demo.py - threshold 0.8
-  Future<void> translateCameraImage(CameraImage cameraImage) async {
+  Future<void> translateCameraImage(CameraImage cameraImage, {bool isFrontCamera = true}) async {
     // Đảm bảo service đã được khởi tạo
     if (!_isServiceInitialized) {
       await initializeService();
@@ -104,8 +104,11 @@ class TranslationProvider extends ChangeNotifier {
 
     try {
       // Dùng translateCameraImageRealtime với threshold 0.8
-      final result = await _translationService.translateCameraImageRealtime(cameraImage);
+      final result = await _translationService.translateCameraImageRealtime(cameraImage, isFrontCamera: isFrontCamera);
       
+      // Cập nhật keypoints để vẽ UI (bao gồm vùng an toàn)
+      _currentKeypoints = _translationService.lastKeypoints;
+
       // result có thể null nếu chưa đủ frames hoặc confidence < 0.8
       if (result != null) {
         _currentResult = result;
@@ -116,8 +119,9 @@ class TranslationProvider extends ChangeNotifier {
             _history.removeRange(50, _history.length);
           }
         }
-        notifyListeners();
       }
+      // Luôn notify để vẽ lại keypoints/safe zone ngay cả khi chưa có kết quả dịch
+      notifyListeners();
     } catch (e) {
       debugPrint('Error translating camera frame: $e');
     }
@@ -125,7 +129,7 @@ class TranslationProvider extends ChangeNotifier {
 
   /// Dictionary Mode: Ghi 40 frames rồi predict
   /// Logic giống dictionary_mode.py - threshold 0.6
-  Future<void> translateDictionarySequence(List<CameraImage> frames) async {
+  Future<void> translateDictionarySequence(List<CameraImage> frames, {bool isFrontCamera = true}) async {
     if (!_isServiceInitialized) {
       await initializeService();
     }
@@ -135,7 +139,7 @@ class TranslationProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final result = await _translationService.translateDictionarySequence(frames);
+      final result = await _translationService.translateDictionarySequence(frames, isFrontCamera: isFrontCamera);
       
       if (result != null) {
         _currentResult = result;

@@ -292,7 +292,8 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
       final provider = Provider.of<TranslationProvider>(context, listen: false);
       
       // Xử lý frame trực tiếp từ CameraImage (không lưu file)
-      await provider.translateCameraImage(image);
+      final bool isFront = _controller?.description.lensDirection == CameraLensDirection.front;
+      await provider.translateCameraImage(image, isFrontCamera: isFront);
       
       if (provider.currentResult != null && mounted) {
         setState(() {
@@ -457,7 +458,8 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
       
       try {
         final provider = Provider.of<TranslationProvider>(currentContext, listen: false);
-        await provider.translateDictionarySequence(_dictionaryFrames);
+        final bool isFront = _controller?.description.lensDirection == CameraLensDirection.front;
+        await provider.translateDictionarySequence(_dictionaryFrames, isFrontCamera: isFront);
         
         if (!mounted) return;
         
@@ -736,7 +738,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                   return CustomPaint(
                     painter: KeypointsPainter(
                       keypoints: provider.currentKeypoints!,
-                      sourceSize: const Size(320, 240), // Kích thước ảnh đầu vào xử lý
+                      sourceSize: const Size(240, 320), // Đã xoay 270 độ thành Portrait
                       isFrontCamera: _controller?.description.lensDirection == CameraLensDirection.front,
                     ),
                   );

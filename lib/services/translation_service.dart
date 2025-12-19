@@ -124,10 +124,15 @@ class TranslationService {
 
   // ... (giữ nguyên các hàm khác)
 
+  // List lưu lịch sử dự đoán để kiểm tra tính ổn định (Consistency)
+  final List<String> _predictionHistory = [];
+  static const int _consistencyFrames = 5; // Giống config.py (logic Python dùng 15 nhưng ở đây model chạy stride 3, nên 5 lần predict = 15 frame)
+
   Future<TranslationResult?> translateCameraImageRealtime(
     CameraImage cameraImage, {
     int? maxWidth,
     int? maxHeight,
+    bool isFrontCamera = true,
   }) async {
     if (!_isInitialized) {
       await initialize();
@@ -140,7 +145,7 @@ class TranslationService {
 
     try {
       // 1. Extract keypoints: BẮT BUỘC mỗi frame để vẽ UI mượt mà
-      final keypoints = await _keypointsExtractor.extractKeypoints(cameraImage);
+      final keypoints = await _keypointsExtractor.extractKeypoints(cameraImage, isFrontCamera: isFrontCamera);
       
       if (keypoints.length != 1662) {
         return null;
@@ -152,7 +157,6 @@ class TranslationService {
       _sequenceBuffer.addKeypoints(keypoints);
       
       // 3. Tối ưu Prediction: Chỉ dự đoán mỗi 3 frames (Stride = 3)
-      // Với FPS đầu vào 15, Stride 3 -> Dự đoán 5 lần/giây (mỗi 200ms) -> Độ trễ thấp
       _realtimeFrameCount++;
       if (_realtimeFrameCount % 3 != 0) {
          return null; // Skip prediction frame này
@@ -163,7 +167,7 @@ class TranslationService {
         return null; 
       }
       
-      // 4. Predict (chỉ chạy mỗi 5 frames)
+      // 4. Predict
       final sequence = _sequenceBuffer.getSequence();
       final prediction = await _mlService.predict(sequence);
       
@@ -171,12 +175,29 @@ class TranslationService {
       final isUnknown = prediction['is_unknown'] as bool? ?? false;
       final actionKey = prediction['action_key'] as String;
       
-      // Threshold 0.5 như yêu cầu
-      const double realtimeThreshold = 0.5;
+      // Threshold 0.8 giống demo_opencv.py/config.py
+      const double realtimeThreshold = 0.8; 
+
+      // Thêm vào lịch sử dự đoán
+      _predictionHistory.add(actionKey);
+      if (_predictionHistory.length > _consistencyFrames) {
+        _predictionHistory.removeAt(0);
+      }
       
-      // Chỉ hiển thị nếu confidence >= 0.8 và không phải unknown
-      if (isUnknown || actionKey == 'unknown' || confidence < realtimeThreshold) {
-        return null; // Không đủ tự tin, không hiển thị
+      // KIỂM TRA TÍNH ỔN ĐỊNH (Consistency Check)
+      // Chỉ trả về kết quả nếu 5 lần dự đoán gần nhất đều giống nhau (hoặc đa số)
+      bool isStable = false;
+      if (_predictionHistory.length >= _consistencyFrames) {
+        // Kiểm tra xem tất cả phần tử trong lịch sử có giống nhau không
+        isStable = _predictionHistory.every((element) => element == actionKey);
+      }
+      
+      // Chỉ hiển thị nếu:
+      // 1. Confidence cao (>= 0.8)
+      // 2. Không phải unknown
+      // 3. Kết quả ổn định (Stable)
+      if (isUnknown || actionKey == 'unknown' || confidence < realtimeThreshold || !isStable) {
+        return null; // Không đủ điều kiện hiển thị
       }
       
       return TranslationResult(
@@ -199,8 +220,9 @@ class TranslationService {
   /// - Predict ngay sau khi ghi xong
   /// - Threshold 0.6 (như Python)
   Future<TranslationResult?> translateDictionarySequence(
-    List<CameraImage> frames,
-  ) async {
+    List<CameraImage> frames, {
+    bool isFrontCamera = true,
+  }) async {
     if (!_isInitialized) {
       await initialize();
     }
@@ -249,7 +271,7 @@ class TranslationService {
 
       // Extract keypoints từ từng frame đã lọc
       for (final frame in framesToProcess) {
-        final keypoints = await _keypointsExtractor.extractKeypoints(frame);
+        final keypoints = await _keypointsExtractor.extractKeypoints(frame, isFrontCamera: isFrontCamera);
         
         // Kiểm tra số lượng keypoints
         if (keypoints.length != 1662) {

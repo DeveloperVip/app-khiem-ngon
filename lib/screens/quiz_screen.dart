@@ -5,6 +5,7 @@ import '../models/lesson_model.dart';
 import '../services/supabase_service.dart';
 import '../providers/auth_provider.dart';
 import '../models/user_upload_model.dart';
+import 'quiz_result_screen.dart';
 
 class QuizScreen extends StatefulWidget {
   final QuizModel quiz;
@@ -401,6 +402,16 @@ class _QuizScreenState extends State<QuizScreen> {
                           ),
                           child: Column(
                             children: [
+                              Icon(
+                                _result!.score >= _result!.totalQuestions / 2
+                                    ? Icons.emoji_events
+                                    : Icons.refresh,
+                                size: 48,
+                                color: _result!.score >= _result!.totalQuestions / 2
+                                    ? Colors.green
+                                    : Colors.orange,
+                              ),
+                              const SizedBox(height: 12),
                               Text(
                                 'Kết quả: ${_result!.score}/${_result!.totalQuestions}',
                                 style: const TextStyle(
@@ -414,14 +425,41 @@ class _QuizScreenState extends State<QuizScreen> {
                                     ? 'Chúc mừng! Bạn đã vượt qua bài kiểm tra!'
                                     : 'Bạn cần cải thiện thêm. Hãy học lại bài học!',
                                 textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 16),
                               ),
                             ],
                           ),
                         ),
                       const SizedBox(height: 16),
-                      ElevatedButton(
+                      // Nút xem chi tiết
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => QuizResultScreen(
+                                quiz: widget.quiz,
+                                userAnswers: _answers,
+                                score: _result!.score,
+                                totalQuestions: _result!.totalQuestions,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.analytics_outlined),
+                        label: const Text('Xem chi tiết'),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 48),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
                         onPressed: () => Navigator.pop(context),
-                        child: const Text('Hoàn thành'),
+                        icon: const Icon(Icons.check),
+                        label: const Text('Hoàn thành'),
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 48),
+                        ),
                       ),
                     ],
                   )

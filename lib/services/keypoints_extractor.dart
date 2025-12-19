@@ -9,7 +9,7 @@ class KeypointsExtractor {
   static const MethodChannel _channel = MethodChannel('com.example.flutter_application_initial/tflite');
   
   /// Extract keypoints từ CameraImage bằng MediaPipe chạy dưới native
-  Future<List<double>> extractKeypoints(CameraImage cameraImage) async {
+  Future<List<double>> extractKeypoints(CameraImage cameraImage, {bool isFrontCamera = true}) async {
     try {
       // Chuẩn bị data YUV
       // CameraImage trên Android thường là YUV420
@@ -33,6 +33,7 @@ class KeypointsExtractor {
         'yRowStride': yPlane.bytesPerRow,
         'uvRowStride': uPlane.bytesPerRow,
         'uvPixelStride': uPlane.bytesPerPixel,
+        'isFrontCamera': isFrontCamera,
       });
       
       final List<double> keypoints = result.cast<double>();
