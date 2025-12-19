@@ -795,131 +795,115 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                     ),
                   
                   // Kết quả dịch realtime
-                  if (_currentTranslation != null && _isMLReady)
-
-                // Nút close cho kết quả realtime
-                      Stack(
-                        children: [
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.2),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.translate,
-                                      color: Theme.of(context).colorScheme.primary,
-                                      size: 20,
+                  // Hiển thị kết quả dịch Realtime (Dạng hội thoại nối tiếp)
+                  if (_translationMode == TranslationMode.realtime)
+                    Consumer<TranslationProvider>(
+                      builder: (context, provider, _) {
+                        if (provider.liveTranscript.isNotEmpty) {
+                          return Stack(
+                            children: [
+                              Container(
+                                width: double.infinity,
+                                constraints: const BoxConstraints(minHeight: 100, maxHeight: 150),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.2),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 2),
                                     ),
-                                    const SizedBox(width: 8),
-                                    const Text(
-                                      'Ký hiệu được nhận diện:',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 14,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                    const Spacer(),
-                                    if (_currentConfidence != null)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: _currentConfidence! > 0.7
-                                              ? Colors.green.withValues(alpha: 0.2)
-                                              : Colors.orange.withValues(alpha: 0.2),
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: Text(
-                                          '${(_currentConfidence! * 100).toStringAsFixed(0)}%',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                            color: _currentConfidence! > 0.7
-                                                ? Colors.green
-                                                : Colors.orange,
-                                          ),
-                                        ),
-                                      ),
                                   ],
                                 ),
-                                const SizedBox(height: 12),
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 30), // Chừa chỗ cho nút close
-                                  child: Text(
-                                    _currentTranslation!,
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.black87,
-                                    ),
+                                child: SingleChildScrollView(
+                                  reverse: true, // Cuộn xuống cuối khi có từ mới
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            Icons.forum_outlined,
+                                            color: Theme.of(context).colorScheme.primary,
+                                            size: 20,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          const Text(
+                                            'Hội thoại Realtime:',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                              color: Colors.grey,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        provider.liveTranscript,
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.black87,
+                                          height: 1.5,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
-                          Positioned(
-                            top: 4,
-                            right: 4,
-                            child: IconButton(
-                              icon: const Icon(Icons.close, color: Colors.grey, size: 20),
-                              onPressed: () {
-                                setState(() {
-                                  _currentTranslation = null;
-                                  _currentConfidence = null;
-                                });
-                              },
-                            ),
-                          ),
-                        ],
-                      )
-                  else if (_isMLReady && _translationMode == TranslationMode.realtime)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.info_outline,
-                            color: Colors.blue[700],
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _isProcessing 
-                                  ? 'Đang phân tích ký hiệu...'
-                                  : 'Hãy thực hiện ký hiệu trước camera',
-                              style: TextStyle(
-                                color: Colors.blue[900],
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
+                              Positioned(
+                                top: 4,
+                                right: 4,
+                                child: IconButton(
+                                  icon: const Icon(Icons.delete_sweep_outlined, color: Colors.redAccent, size: 22),
+                                  tooltip: 'Xoá hội thoại',
+                                  onPressed: () {
+                                    provider.resetTranscript();
+                                    setState(() {
+                                      _currentTranslation = null;
+                                      _currentConfidence = null;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ],
+                          );
+                        } 
+                        // else if (_isMLReady) {
+                        //   // Placeholder khi chưa có từ nào được dịch
+                        //   return Container(
+                        //     width: double.infinity,
+                        //     padding: const EdgeInsets.all(16),
+                        //     decoration: BoxDecoration(
+                        //       color: Colors.blue.withOpacity(0.1),
+                        //       borderRadius: BorderRadius.circular(12),
+                        //       border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                        //     ),
+                        //     child: Row(
+                        //       children: [
+                        //         Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                        //         const SizedBox(width: 12),
+                        //         Expanded(
+                        //           child: Text(
+                        //             'Hãy thực hiện ký hiệu trước camera để bắt đầu dịch hội thoại',
+                        //             style: TextStyle(
+                        //               color: Colors.blue[900],
+                        //               fontSize: 14,
+                        //               fontWeight: FontWeight.w500,
+                        //             ),
+                        //           ),
+                        //         ),
+                        //       ],
+                        //     ),
+                        //   );
+                        // } 
+                        else {
+                          return const SizedBox.shrink();
+                        }
+                      },
                     ),
                   const SizedBox(height: 16),
                   
@@ -1043,7 +1027,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
                       else if (_translationMode == TranslationMode.realtime)
                         Text(
                           _isMLReady 
-                              ? 'Đang phân tích ký hiệu liên tục (độ tin cậy ≥ 80%)'
+                              ? 'Đang phân tích ký hiệu liên tục (độ tin cậy ≥ 50%)'
                               : '⚠️ Tính năng dịch AI chưa sẵn sàng',
                           style: TextStyle(
                             color: _isMLReady ? Colors.white70 : Colors.orange[300],

@@ -17,7 +17,7 @@ class KeypointsPainter extends CustomPainter {
     if (keypoints.isEmpty || keypoints.length != 1662) return;
 
     // --- MARGIN: Vùng an toàn (giống demo_opencv.py) ---
-    const double margin = 30.0; // Khoảng cách an toàn so với mép màn hình
+    const double margin = 0; // Khoảng cách an toàn so với mép màn hình
 
     // --- ĐỊNH NGHĨA MÀU SẮC THEO YÊU CẦU ---
     final paintBody = Paint()
@@ -79,6 +79,8 @@ class KeypointsPainter extends CustomPainter {
     }
 
     // --- KIỂM TRA VÙNG AN TOÀN CHO TAY ---
+    bool isLeftHandPresent = false;
+    bool isRightHandPresent = false;
     bool isLeftHandSafe = true;
     bool isRightHandSafe = true;
     
@@ -90,9 +92,11 @@ class KeypointsPainter extends CustomPainter {
       double y = keypoints[idx + 1];
       
       if (x != 0 && y != 0) {
+        isLeftHandPresent = true;
         Offset point = getPoint(x, y);
-        if (point.dx < margin || point.dx > canvasWidth - margin ||
-            point.dy < margin || point.dy > canvasHeight - margin) {
+        // Canvas coordinate check (No margin)
+        if (point.dx < 0 || point.dx > canvasWidth ||
+            point.dy < 0 || point.dy > canvasHeight) {
           isLeftHandSafe = false;
           break;
         }
@@ -107,9 +111,10 @@ class KeypointsPainter extends CustomPainter {
       double y = keypoints[idx + 1];
       
       if (x != 0 && y != 0) {
+        isRightHandPresent = true;
         Offset point = getPoint(x, y);
-        if (point.dx < margin || point.dx > canvasWidth - margin ||
-            point.dy < margin || point.dy > canvasHeight - margin) {
+        if (point.dx < 0 || point.dx > canvasWidth ||
+            point.dy < 0 || point.dy > canvasHeight) {
           isRightHandSafe = false;
           break;
         }
@@ -117,19 +122,34 @@ class KeypointsPainter extends CustomPainter {
     }
     
     // Xác định màu sắc và trạng thái
-    bool isSafe = isLeftHandSafe && isRightHandSafe;
-    Color safeZoneColor = isSafe ? Colors.green : Colors.red;
-    double safeZoneThickness = isSafe ? 2.0 : 10.0;
-    String statusText = isSafe ? "GÓC MÁY: OK" : "CẢNH BÁO: TAY RA KHỎI KHUNG HÌNH!";
+    bool isAnyHandPresent = isLeftHandPresent || isRightHandPresent;
+    bool isSafe = (!isLeftHandPresent || isLeftHandSafe) && (!isRightHandPresent || isRightHandSafe);
     
-    // --- VẼ SAFE ZONE (Khung vùng an toàn) ---
+    Color safeZoneColor;
+    if (!isAnyHandPresent) {
+      safeZoneColor = Colors.white.withOpacity(0.3); // Mờ nếu không có tay
+    } else {
+      safeZoneColor = isSafe ? Colors.green : Colors.red;
+    }
+    
+    double safeZoneThickness = (isAnyHandPresent && !isSafe) ? 6.0 : 2.0;
+    String statusText;
+    if (!isAnyHandPresent) {
+      statusText = "ĐANG CHỜ TÍN HIỆU TAY...";
+    } else if (!isSafe) {
+      statusText = "CẢNH BÁO: TAY RA KHỎI KHUNG HÌNH!";
+    } else {
+      statusText = "GÓC MÁY: OK";
+    }
+    
+    // --- VẼ SAFE ZONE (Khung vùng an toàn - Full screen) ---
     final paintSafeZone = Paint()
       ..color = safeZoneColor
       ..strokeWidth = safeZoneThickness
       ..style = PaintingStyle.stroke;
     
     canvas.drawRect(
-      Rect.fromLTRB(margin, margin, canvasWidth - margin, canvasHeight - margin),
+      Rect.fromLTWH(0, 0, canvasWidth, canvasHeight),
       paintSafeZone,
     );
     
@@ -139,7 +159,7 @@ class KeypointsPainter extends CustomPainter {
         text: statusText,
         style: TextStyle(
           color: safeZoneColor,
-          fontSize: 20,
+          fontSize: 12,
           fontWeight: FontWeight.bold,
           shadows: [
             Shadow(
@@ -153,7 +173,7 @@ class KeypointsPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     );
     textPainter.layout();
-    textPainter.paint(canvas, const Offset(50, 50));
+    textPainter.paint(canvas, const Offset(20, 20));
     
     // --- VẼ CẢNH BÁO CHO TỪNG TAY ---
     if (!isLeftHandSafe) {
@@ -162,7 +182,7 @@ class KeypointsPainter extends CustomPainter {
           text: "<-- Tay Trái mất tín hiệu",
           style: TextStyle(
             color: Colors.red,
-            fontSize: 16,
+            fontSize: 12,
             fontWeight: FontWeight.bold,
             shadows: [
               Shadow(
@@ -176,7 +196,7 @@ class KeypointsPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       );
       leftWarningPainter.layout();
-      leftWarningPainter.paint(canvas, Offset(50, canvasHeight - 50));
+      leftWarningPainter.paint(canvas, Offset(20, canvasHeight - 20));
     }
     
     if (!isRightHandSafe) {
@@ -185,7 +205,7 @@ class KeypointsPainter extends CustomPainter {
           text: "Tay Phải mất tín hiệu -->",
           style: TextStyle(
             color: Colors.red,
-            fontSize: 16,
+            fontSize: 12,
             fontWeight: FontWeight.bold,
             shadows: [
               Shadow(
@@ -199,7 +219,7 @@ class KeypointsPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       );
       rightWarningPainter.layout();
-      rightWarningPainter.paint(canvas, Offset(canvasWidth - 350, canvasHeight - 50));
+      rightWarningPainter.paint(canvas, Offset(canvasWidth - 350, canvasHeight - 20));
     }
 
     // ==========================================================

@@ -383,31 +383,62 @@ class MainActivity : FlutterActivity() {
     private var faceLandmarker: com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker? = null
     private var handLandmarker: com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker? = null
     
+    private var cachedArgbArray: IntArray? = null
+    
     private fun ensureMediaPipeInitialized() {
         if (!isArmDevice()) return
 
         if (poseLandmarker == null) {
              try {
+                // Sử dụng GPU nếu có thể để tăng tốc độ (CPU là fallback)
+                val baseOptionsBuilder = BaseOptions.builder()
+                baseOptionsBuilder.setDelegate(com.google.mediapipe.tasks.core.Delegate.GPU)
+
                 val poseOptions = PoseLandmarker.PoseLandmarkerOptions.builder()
-                    .setBaseOptions(BaseOptions.builder().setModelAssetPath("pose_landmarker.task").build())
+                    .setBaseOptions(baseOptionsBuilder.setModelAssetPath("pose_landmarker.task").build())
                     .setRunningMode(RunningMode.IMAGE)
                     .build()
                 poseLandmarker = PoseLandmarker.createFromOptions(this, poseOptions)
                 
                 val faceOptions = FaceLandmarker.FaceLandmarkerOptions.builder()
-                    .setBaseOptions(BaseOptions.builder().setModelAssetPath("face_landmarker.task").build())
+                    .setBaseOptions(baseOptionsBuilder.setModelAssetPath("face_landmarker.task").build())
                     .setRunningMode(RunningMode.IMAGE)
                     .build()
                 faceLandmarker = FaceLandmarker.createFromOptions(this, faceOptions)
                 
                 val handOptions = HandLandmarker.HandLandmarkerOptions.builder()
-                    .setBaseOptions(BaseOptions.builder().setModelAssetPath("hand_landmarker.task").build())
+                    .setBaseOptions(baseOptionsBuilder.setModelAssetPath("hand_landmarker.task").build())
                     .setRunningMode(RunningMode.IMAGE)
                     .setNumHands(2)
                     .build()
                 handLandmarker = HandLandmarker.createFromOptions(this, handOptions)
+                
+                Log.d(TAG, "✅ MediaPipe initialized with GPU delegate")
              } catch (e:  Throwable) {
-                 Log.e(TAG, "❌ Lỗi khởi tạo MediaPipe: ${e.message}")
+                 Log.e(TAG, "⚠️ Lỗi GPU delegate, thử lại với CPU: ${e.message}")
+                 // Fallback sang CPU
+                 try {
+                    val poseOptions = PoseLandmarker.PoseLandmarkerOptions.builder()
+                        .setBaseOptions(BaseOptions.builder().setModelAssetPath("pose_landmarker.task").build())
+                        .setRunningMode(RunningMode.IMAGE)
+                        .build()
+                    poseLandmarker = PoseLandmarker.createFromOptions(this, poseOptions)
+                    
+                    val faceOptions = FaceLandmarker.FaceLandmarkerOptions.builder()
+                        .setBaseOptions(BaseOptions.builder().setModelAssetPath("face_landmarker.task").build())
+                        .setRunningMode(RunningMode.IMAGE)
+                        .build()
+                    faceLandmarker = FaceLandmarker.createFromOptions(this, faceOptions)
+                    
+                    val handOptions = HandLandmarker.HandLandmarkerOptions.builder()
+                        .setBaseOptions(BaseOptions.builder().setModelAssetPath("hand_landmarker.task").build())
+                        .setRunningMode(RunningMode.IMAGE)
+                        .setNumHands(2)
+                        .build()
+                    handLandmarker = HandLandmarker.createFromOptions(this, handOptions)
+                 } catch (e2: Throwable) {
+                    Log.e(TAG, "❌ Lỗi khởi tạo MediaPipe CPU: ${e2.message}")
+                 }
              }
         }
     }
@@ -430,6 +461,11 @@ class MainActivity : FlutterActivity() {
             ?: return List(1662) { 0.0 }
         
         val mpImage = com.google.mediapipe.framework.image.BitmapImageBuilder(bitmap).build()
+        
+        // CHẠY SONG SONG ĐỂ TĂNG TỐC (Sử dụng threads riêng nếu thiết bị mạnh)
+        // Tuy nhiên MediaPipe Tasks có thể không thread-safe hoàn toàn nếu dùng chung 1 instance delegate
+        // Ở đây ta chạy tuần tự nhưng tối ưu hoá các bước khác trước.
+        // Thực tế, Hand detection quan trọng nhất cho dịch.
         
         val poseResult = poseLandmarker!!.detect(mpImage)
         val faceResult = faceLandmarker!!.detect(mpImage)
@@ -522,7 +558,11 @@ class MainActivity : FlutterActivity() {
         uvPixelStride: Int,
         isFrontCamera: Boolean
     ): android.graphics.Bitmap? {
-        val argbArray = IntArray(width * height)
+        val size = width * height
+        if (cachedArgbArray == null || cachedArgbArray!!.size != size) {
+            cachedArgbArray = IntArray(size)
+        }
+        val argbArray = cachedArgbArray!!
         var argbIndex = 0
         for (y in 0 until height) {
             val uvRowIndex = (y / 2) * uvRowStride

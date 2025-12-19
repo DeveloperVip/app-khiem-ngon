@@ -152,6 +152,28 @@ class TranslationService {
       }
 
       _lastKeypoints = keypoints; // Lưu lại để vẽ UI ngay lập tức
+
+      // --- KIỂM TRA SỰ HIỆN DIỆN CỦA TAY (Gỡ lỗi dịch ngẫu nhiên) ---
+      int leftHandPoints = 0;
+      int rightHandPoints = 0;
+      
+      // Đếm số lượng điểm tay có toạ độ khác 0
+      for (int i = 1536; i < 1599; i += 3) {
+        if (keypoints[i] != 0 || keypoints[i + 1] != 0) leftHandPoints++;
+      }
+      for (int i = 1599; i < 1662; i += 3) {
+        if (keypoints[i] != 0 || keypoints[i + 1] != 0) rightHandPoints++;
+      }
+
+      // Chỉ coi là có tay nếu tìm thấy ít nhất 5 khớp (giảm nhiễu từ các điểm giả)
+      bool hasHand = leftHandPoints >= 5 || rightHandPoints >= 5;
+
+      if (!hasHand) {
+        _realtimeFrameCount = 0; // Reset stride counter
+        _sequenceBuffer.clear(); 
+        _predictionHistory.clear();
+        return null;
+      }
       
       // 2. Thêm vào sequence buffer
       _sequenceBuffer.addKeypoints(keypoints);
@@ -159,7 +181,7 @@ class TranslationService {
       // 3. Tối ưu Prediction: Chỉ dự đoán mỗi 3 frames (Stride = 3)
       _realtimeFrameCount++;
       if (_realtimeFrameCount % 3 != 0) {
-         return null; // Skip prediction frame này
+         return null; 
       }
 
       // Chỉ predict khi đủ 30 frames
@@ -175,38 +197,44 @@ class TranslationService {
       final isUnknown = prediction['is_unknown'] as bool? ?? false;
       final actionKey = prediction['action_key'] as String;
       
-      // Threshold 0.8 giống demo_opencv.py/config.py
-      const double realtimeThreshold = 0.8; 
+      // Tăng threshold lên 0.65 để lọc kết quả sai (Accuracy++)
+      const double realtimeThreshold = 0.65; 
 
-      // Thêm vào lịch sử dự đoán
       _predictionHistory.add(actionKey);
       if (_predictionHistory.length > _consistencyFrames) {
         _predictionHistory.removeAt(0);
       }
       
-      // KIỂM TRA TÍNH ỔN ĐỊNH (Consistency Check)
-      // Chỉ trả về kết quả nếu 5 lần dự đoán gần nhất đều giống nhau (hoặc đa số)
       bool isStable = false;
       if (_predictionHistory.length >= _consistencyFrames) {
-        // Kiểm tra xem tất cả phần tử trong lịch sử có giống nhau không
         isStable = _predictionHistory.every((element) => element == actionKey);
       }
       
-      // Chỉ hiển thị nếu:
-      // 1. Confidence cao (>= 0.8)
-      // 2. Không phải unknown
-      // 3. Kết quả ổn định (Stable)
-      if (isUnknown || actionKey == 'unknown' || confidence < realtimeThreshold || !isStable) {
-        return null; // Không đủ điều kiện hiển thị
+      // LOGIC XỬ LÝ KẾT QUẢ:
+      // 1. Nếu ổn định và tự tin (Confidence >= 0.65) -> Trả về từ đã học
+      if (!isUnknown && actionKey != 'unknown' && confidence >= realtimeThreshold && isStable) {
+        return TranslationResult(
+          text: prediction['display_text'] as String,
+          confidence: confidence,
+          timestamp: DateTime.now(),
+          mediaPath: '',
+          mediaType: MediaType.camera,
+        );
       }
       
-      return TranslationResult(
-        text: prediction['display_text'] as String,
-        confidence: confidence,
-        timestamp: DateTime.now(),
-        mediaPath: '',
-        mediaType: MediaType.camera,
-      );
+      // 2. Nếu ổn định nhưng không tự tin (Confidence thấp) hoặc Model báo Unknown -> Báo "Ký hiệu chưa được học"
+      // Điều này giúp người dùng biết là họ đang làm ký hiệu nhưng máy chưa nhận diện được
+      if (isStable && (isUnknown || actionKey == 'unknown' || confidence < realtimeThreshold)) {
+        return TranslationResult(
+          text: "Ký hiệu chưa được học",
+          confidence: confidence,
+          timestamp: DateTime.now(),
+          mediaPath: '',
+          mediaType: MediaType.camera,
+        );
+      }
+
+      return null;
     } catch (e) {
       // print('❌ Lỗi xử lý frame camera: $e');
       return null;

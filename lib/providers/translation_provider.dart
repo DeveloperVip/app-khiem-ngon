@@ -10,16 +10,24 @@ class TranslationProvider extends ChangeNotifier {
 
   List<TranslationResult> _history = [];
   TranslationResult? _currentResult;
-  List<double>? _currentKeypoints; // Keypoints hiện tại để vẽ
+  List<double>? _currentKeypoints;
   bool _isProcessing = false;
   String? _errorMessage;
+  String _liveTranscript = ""; // Chuỗi tích luỹ kết quả dịch realtime
 
   List<TranslationResult> get history => _history;
   TranslationResult? get currentResult => _currentResult;
-  List<double>? get currentKeypoints => _currentKeypoints; // Getter mới
+  List<double>? get currentKeypoints => _currentKeypoints;
   bool get isProcessing => _isProcessing;
   String? get errorMessage => _errorMessage;
-  bool get isReady => _translationService.isReady; // Trạng thái ML service
+  bool get isReady => _translationService.isReady;
+  String get liveTranscript => _liveTranscript; // Getter cho hội thoại
+
+  void resetTranscript() {
+    _liveTranscript = "";
+    _currentResult = null;
+    notifyListeners();
+  }
 
   /// Khởi tạo ML service (gọi một lần khi app start)
   Future<void> initializeService() async {
@@ -108,20 +116,36 @@ class TranslationProvider extends ChangeNotifier {
       
       // Cập nhật keypoints để vẽ UI (bao gồm vùng an toàn)
       _currentKeypoints = _translationService.lastKeypoints;
+      
+      // NOTIFY LẦN 1: Để vẽ lại keypoints ngay lập tức (Xử lý mượt canvas)
+      notifyListeners(); 
 
-      // result có thể null nếu chưa đủ frames hoặc confidence < 0.8
+      // result có thể null nếu chưa đủ frames hoặc confidence < 0.6
       if (result != null) {
         _currentResult = result;
-        // Chỉ thêm vào history nếu kết quả khác với kết quả trước đó
+        
+        // Tích luỹ vào transcript (hội thoại)
+        if (_liveTranscript.isEmpty) {
+          _liveTranscript = result.text;
+        } else {
+          // Chỉ thêm nếu từ mới khác với từ cuối cùng đã thêm (tránh lặp)
+          List<String> words = _liveTranscript.trim().split(" ");
+          if (words.last != result.text) {
+            _liveTranscript += " ${result.text}";
+          }
+        }
+
+        // Chỉ thêm vào history tab nếu kết quả khác với kết quả trước đó
         if (_history.isEmpty || _history.first.text != result.text) {
           _history.insert(0, result);
           if (_history.length > 50) {
             _history.removeRange(50, _history.length);
           }
         }
+        
+        // NOTIFY LẦN 2: Khi có kết quả dịch mới
+        notifyListeners();
       }
-      // Luôn notify để vẽ lại keypoints/safe zone ngay cả khi chưa có kết quả dịch
-      notifyListeners();
     } catch (e) {
       debugPrint('Error translating camera frame: $e');
     }
